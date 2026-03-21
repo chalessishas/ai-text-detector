@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
@@ -17,6 +17,10 @@ const TRAIT_COLORS: Record<Trait, string> = {
   conventions: "#6b7280",
   presentation: "#ec4899",
 };
+
+export interface EditorHandle {
+  scrollToAnnotation: (id: string) => void;
+}
 
 interface EditorProps {
   content: string;
@@ -35,7 +39,6 @@ function buildDecorations(
   const decorations: Decoration[] = [];
   if (!annotations.length) return DecorationSet.create(doc, []);
 
-  // Collect paragraph nodes with their positions
   const paragraphs: { node: ReturnType<typeof Object>; pos: number }[] = [];
   doc.descendants((node: ReturnType<typeof Object>, pos: number) => {
     if (node.isBlock && node.isTextblock) {
@@ -47,7 +50,7 @@ function buildDecorations(
     const para = paragraphs[ann.paragraph];
     if (!para) continue;
 
-    const paraStart = para.pos + 1; // +1 to skip the opening tag
+    const paraStart = para.pos + 1;
     const paraLen = para.node.content.size;
 
     let from: number;
@@ -59,7 +62,6 @@ function buildDecorations(
       ann.startOffset >= paraLen ||
       ann.endOffset > paraLen
     ) {
-      // Highlight entire paragraph
       from = paraStart;
       to = paraStart + paraLen;
     } else {
@@ -112,13 +114,10 @@ function createAnnotationExtension(annotations: Annotation[]) {
   });
 }
 
-export default function Editor({
-  content,
-  onUpdate,
-  annotations,
-  onAnnotationClick,
-  disabled = false,
-}: EditorProps) {
+const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
+  { content, onUpdate, annotations, onAnnotationClick, disabled = false },
+  ref
+) {
   const editor = useEditor({
     extensions: [StarterKit, createAnnotationExtension(annotations)],
     content,
@@ -133,6 +132,18 @@ export default function Editor({
       },
     },
   });
+
+  useImperativeHandle(ref, () => ({
+    scrollToAnnotation(id: string) {
+      const el = editor?.view.dom.querySelector(
+        `[data-annotation-id="${id}"]`
+      );
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("annotation-pulse");
+      setTimeout(() => el.classList.remove("annotation-pulse"), 1500);
+    },
+  }), [editor]);
 
   // Update decorations when annotations change
   useEffect(() => {
@@ -175,4 +186,6 @@ export default function Editor({
       <EditorContent editor={editor} />
     </div>
   );
-}
+});
+
+export default Editor;
