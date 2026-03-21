@@ -1,0 +1,38 @@
+{
+  "name": "ai-text-detector",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "server": "python3 scripts/perplexity.py",
+    "humanizer": "python3 scripts/humanizer.py",
+    "build-corpus": "python3 scripts/build_corpus.py",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@tiptap/extension-highlight": "^3.20.4",
+    "@tiptap/pm": "^3.20.4",
+    "@tiptap/react": "^3.20.4",
+    "@tiptap/starter-kit": "^3.20.4",
+    "gray-matter": "^4.0.3",
+    "next": "16.1.7",
+    "openai": "^6.32.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-markdown": "^10.1.0",
+    "recharts": "^3.8.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.7",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
