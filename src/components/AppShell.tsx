@@ -96,17 +96,17 @@ const panels: { key: Panel; icon: React.ReactNode; label: string }[] = [
 
 // ── Detect tabs ──
 
-const detectTabs = [
-  { key: "overview", label: "Overview", icon: "◎" },
-  { key: "sentences", label: "Sentences", icon: "≡" },
-  { key: "gltr", label: "GLTR", icon: "▦" },
-  { key: "perplexity", label: "Perplexity", icon: "〰" },
-  { key: "entropy", label: "Entropy", icon: "◆" },
-  { key: "burstiness", label: "Burstiness", icon: "▥" },
-  { key: "window", label: "Window", icon: "◳" },
+const detectTabsAll = [
+  { key: "overview", label: "Overview", icon: "◎", needsTokens: false },
+  { key: "sentences", label: "Sentences", icon: "≡", needsTokens: true },
+  { key: "gltr", label: "GLTR", icon: "▦", needsTokens: true },
+  { key: "perplexity", label: "Perplexity", icon: "〰", needsTokens: true },
+  { key: "entropy", label: "Entropy", icon: "◆", needsTokens: true },
+  { key: "burstiness", label: "Burstiness", icon: "▥", needsTokens: false },
+  { key: "window", label: "Window", icon: "◳", needsTokens: true },
 ] as const;
 
-type DetectTab = (typeof detectTabs)[number]["key"];
+type DetectTab = (typeof detectTabsAll)[number]["key"];
 
 // ── Main ──
 
@@ -299,7 +299,8 @@ export default function AppShell() {
             </span>
             {result && (
               <span className="text-white/80 text-[10px] ml-3">
-                Perplexity: {result.overallPerplexity.toFixed(2)} · {result.tokens.length} tokens
+                {result.fused ? `${result.fused.prediction} (${result.fused.confidence}%)` : `Score: ${result.overallScore.toFixed(0)}%`}
+                {result.hasTokenData && ` · ${result.tokens.length} tokens`}
               </span>
             )}
           </div>
@@ -359,31 +360,40 @@ function DetectPanel({
         </div>
 
         {result && result.scoringEligible && (
-          <div className={`rounded-xl p-4 border ${scoreBg(result.overallScore)}`}>
-            <div className="flex items-center gap-4">
-              <div className="text-center min-w-[60px]">
-                <div className={`text-2xl font-bold tracking-tight ${scoreColor(result.overallScore)}`}>
-                  {result.overallScore.toFixed(0)}%
+          <div className={`rounded-xl border overflow-hidden ${scoreBg(result.overallScore)}`}>
+            {/* Verdict hero */}
+            <div className="p-5 flex items-center gap-5">
+              <div className="relative w-16 h-16 shrink-0">
+                <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
+                  <circle cx="18" cy="18" r="15.5" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-10" />
+                  <circle
+                    cx="18" cy="18" r="15.5" fill="none"
+                    strokeWidth="3" strokeLinecap="round"
+                    stroke={result.overallScore > 70 ? "#c44" : result.overallScore > 30 ? "#d97706" : "#059669"}
+                    strokeDasharray={`${result.overallScore * 0.974} 97.4`}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className={`text-lg font-bold ${scoreColor(result.overallScore)}`}>
+                    {result.overallScore.toFixed(0)}
+                  </span>
                 </div>
-                <div className="text-[10px] text-[var(--muted)]">AI Score</div>
               </div>
-              <div className="border-l border-current/10 pl-4">
-                <div className={`text-sm font-semibold ${scoreColor(result.overallScore)}`}>
+              <div className="flex-1">
+                <div className={`text-base font-semibold ${scoreColor(result.overallScore)}`}>
                   {scoreLabel(result.overallScore)}
                 </div>
-                <div className="text-xs text-[var(--muted)] mt-0.5">
-                  {result.classification ? (
-                    <>
-                      Class: {result.classification.label_name} · Perplexity: {result.overallPerplexity.toFixed(2)} · {result.wordCount} words
-                    </>
-                  ) : (
-                    <>
-                      Perplexity: {result.overallPerplexity.toFixed(2)} · {result.tokens.length} tokens · {result.wordCount} words
-                    </>
+                <div className="text-xs text-[var(--muted)] mt-1">
+                  {result.fused?.prediction === "ai" ? "AI-generated" : "Human-written"}
+                  {" · "}{result.wordCount} words
+                  {result.fused && result.fused.signal_source !== "blended" && (
+                    <span className="ml-1 opacity-60">
+                      ({result.fused.signal_source === "ppl_override_ai" ? "perplexity confirms" : "perplexity override"})
+                    </span>
                   )}
                 </div>
                 {result.classification && (
-                  <div className="flex gap-2 mt-1.5">
+                  <div className="flex gap-1.5 mt-2">
                     {Object.entries(result.classification.probabilities).map(([name, prob]) => (
                       <span key={name} className={`text-[10px] px-1.5 py-0.5 rounded ${
                         name === result.classification!.label_name
@@ -397,6 +407,19 @@ function DetectPanel({
                 )}
               </div>
             </div>
+            {/* AI vocab matches */}
+            {result.aiVocabMatches.length > 0 && (
+              <div className="px-5 pb-4 pt-0">
+                <div className="text-[10px] text-[var(--muted)] mb-1">AI vocabulary detected:</div>
+                <div className="flex flex-wrap gap-1">
+                  {[...new Set(result.aiVocabMatches.map(m => m.word.toLowerCase()))].map((word) => (
+                    <span key={word} className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700">
+                      {word}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -404,7 +427,7 @@ function DetectPanel({
           <div className="rounded-xl p-4 border bg-amber-50 border-amber-200">
             <div className="text-sm font-semibold text-amber-700">Insufficient text for scoring</div>
             <div className="text-xs text-amber-600 mt-1">
-              300+ words required ({result.wordCount} provided). Feature analysis shown without overall score.
+              {result.classification ? "Analysis complete" : `300+ words needed (${result.wordCount} provided)`}. See charts for details.
             </div>
           </div>
         )}
@@ -414,7 +437,7 @@ function DetectPanel({
       <div className="flex-1 min-w-0">
         <div className="bg-[var(--card)] rounded-xl border border-[var(--card-border)] shadow-sm overflow-hidden">
           <div className="flex border-b border-[var(--card-border)] overflow-x-auto">
-            {detectTabs.map((tab) => (
+            {detectTabsAll.filter(tab => !tab.needsTokens || (result?.hasTokenData ?? false)).map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}

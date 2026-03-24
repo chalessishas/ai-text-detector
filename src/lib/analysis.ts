@@ -74,6 +74,17 @@ export interface ClassificationResult {
   ai_score: number;
 }
 
+export interface FusedResult {
+  ai_score: number;
+  prediction: string;
+  confidence: number;
+  word_count: number;
+  threshold: number;
+  signal_source: string;
+  ppl_ai_signal: boolean;
+  ppl_human_signal: boolean;
+}
+
 export interface AnalysisResult {
   tokens: TokenData[];
   sentences: SentenceData[];
@@ -90,6 +101,8 @@ export interface AnalysisResult {
   wordCount: number;
   scoringEligible: boolean;
   classification?: ClassificationResult;
+  fused?: FusedResult;
+  hasTokenData: boolean;
   aiSimilarityTags: AISimilarityTag[];
   aiVocabMatches: AIVocabMatch[];
 }

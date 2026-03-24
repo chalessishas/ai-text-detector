@@ -101,15 +101,21 @@ export async function POST(req: NextRequest) {
       vocabulary
     );
 
-    // DeBERTa ai_score as primary; heuristic as fallback
-    const overallScore = classification ? classification.ai_score : heuristicScore;
+    // Fused score from Python (ensemble: DeBERTa + PPL + length gating)
+    const fused = pyResult.fused as AnalysisResult["fused"];
 
+    // Use fused score as primary (it includes length gating and PPL override)
+    // Fall back to DeBERTa raw score, then heuristic
+    const overallScore = fused?.ai_score ?? classification?.ai_score ?? heuristicScore;
+
+    const hasTokenData = tokens.length > 0;
     const sentenceScores = computeSentenceScores(sentences, tokens);
     const wordCount = trimmed.split(/\s+/).filter((w) => w.length > 0).length;
 
-    const aiSimilarityTags = computeAISimilarityTags(
-      perplexity, gltr, entropy, burstiness, vocabulary, sentences
-    );
+    // Only compute heuristic tags when we have real token data
+    const aiSimilarityTags = hasTokenData
+      ? computeAISimilarityTags(perplexity, gltr, entropy, burstiness, vocabulary, sentences)
+      : [];
     const aiVocabMatches = detectAIVocab(trimmed);
 
     const result: AnalysisResult = {
@@ -123,11 +129,13 @@ export async function POST(req: NextRequest) {
       sentenceLength,
       overallPerplexity: perplexity,
       overallScore,
-      featureScores,
+      featureScores: hasTokenData ? featureScores : [],
       sentenceScores,
       wordCount,
       scoringEligible: classification ? true : wordCount >= 300,
       classification,
+      fused,
+      hasTokenData,
       aiSimilarityTags,
       aiVocabMatches,
     };

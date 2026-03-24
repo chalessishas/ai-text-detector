@@ -126,21 +126,23 @@ export default function FeatureOverview({ result }: Props) {
         </div>
       )}
 
-      {/* Feature Breakdown */}
-      <div className="bg-white rounded-2xl p-6 border border-[var(--card-border)] shadow-sm">
-        <h3 className="text-sm font-semibold text-[var(--foreground)] mb-1">
-          Feature Breakdown
-        </h3>
-        <p className="text-xs text-[var(--muted)] mb-4">
-          Each feature normalized 0-1 (0 = human-like, 1 = AI-like), weighted
-          for overall score.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {result.featureScores.map((f) => (
-            <FeatureCard key={f.name} feature={f} />
-          ))}
+      {/* Feature Breakdown (only when token data available) */}
+      {result.featureScores.length > 0 && (
+        <div className="bg-white rounded-2xl p-6 border border-[var(--card-border)] shadow-sm">
+          <h3 className="text-sm font-semibold text-[var(--foreground)] mb-1">
+            Feature Breakdown
+          </h3>
+          <p className="text-xs text-[var(--muted)] mb-4">
+            Each feature normalized 0-1 (0 = human-like, 1 = AI-like), weighted
+            for overall score.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {result.featureScores.map((f) => (
+              <FeatureCard key={f.name} feature={f} />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-white rounded-2xl p-5 border border-[var(--card-border)] shadow-sm">
