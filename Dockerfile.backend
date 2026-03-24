@@ -24,6 +24,7 @@ RUN python -m spacy download en_core_web_sm
 # Copy scripts
 COPY scripts/perplexity.py scripts/perplexity.py
 COPY scripts/humanizer.py scripts/humanizer.py
+COPY scripts/gateway.py scripts/gateway.py
 COPY entrypoint.sh entrypoint.sh
 RUN chmod +x entrypoint.sh
 
