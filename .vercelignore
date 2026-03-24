@@ -1,0 +1,15 @@
+# Large data files
+*.jsonl
+*.jsonl.bak.*
+*.npy
+
+# Trained models
+models/
+corpus/
+
+# Python scripts (not needed for Next.js deployment)
+scripts/
+
+# Misc
+.DS_Store
+*.pem
