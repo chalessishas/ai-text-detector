@@ -55,16 +55,19 @@ function FeatureCard({ feature }: { feature: FeatureScore }) {
 }
 
 export default function FeatureOverview({ result }: Props) {
+  const isAI = result.overallScore > 50;
   return (
     <div className="space-y-4">
       {/* AI Similarity Tags */}
       {result.aiSimilarityTags.length > 0 && (
-        <div className="bg-white rounded-2xl p-6 border border-red-100 shadow-sm">
+        <div className={`bg-white rounded-2xl p-6 border shadow-sm ${isAI ? "border-red-100" : "border-emerald-100"}`}>
           <h3 className="text-sm font-semibold text-[var(--foreground)] mb-1">
-            Why this text looks AI-generated
+            {isAI ? "Why this text looks AI-generated" : "Analysis details"}
           </h3>
           <p className="text-xs text-[var(--muted)] mb-4">
-            Patterns detected that are characteristic of AI-generated text.
+            {isAI
+              ? "Patterns detected that are characteristic of AI-generated text."
+              : "Some patterns were flagged, but overall the text appears human-written."}
           </p>
           <div className="flex flex-wrap gap-2 mb-4">
             {result.aiSimilarityTags.map((tag) => (
