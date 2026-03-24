@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type {
   Genre,
   ChatMessage,
@@ -25,8 +25,16 @@ import {
   incrementGenreExperience,
 } from "@/lib/writing/storage";
 import { selectStaticTip } from "@/lib/writing/daily-tips";
+import type { BlockInstance, BlockType } from "@/lib/writing/blocks";
+import { getBlockDef, createBlockInstance } from "@/lib/writing/blocks";
+import { apiCall } from "@/lib/writing/api";
 import Editor, { type EditorHandle } from "./Editor";
 import ChatPanel from "./ChatPanel";
+import LabPanel from "./LabPanel";
+import Workbench from "./Workbench";
+import BlockChat from "./BlockChat";
+
+// ── Constants ──
 
 const GENRE_LABELS: Record<Genre, string> = {
   essay: "Essay",
@@ -38,6 +46,13 @@ const GENRE_LABELS: Record<Genre, string> = {
 
 type LayoutPreset = "side" | "top" | "full";
 type Tab = "chat" | "dashboard" | "lab";
+
+// Phase state machine:
+//   workbench → block-chat (for chat-mode blocks)
+//   workbench → writing    (for editor/lab/analyze blocks)
+type Phase = "workbench" | "block-chat" | "writing";
+
+const BOARD_STORAGE_KEY = "writing-center-board";
 
 function countWords(html: string): number {
   const text = html.replace(/<[^>]*>/g, " ").trim();
@@ -52,20 +67,35 @@ function latestTraitScores(
   return last?.traitScores ?? null;
 }
 
-async function apiCall<T>(body: Record<string, unknown>): Promise<T> {
-  const res = await fetch("/api/writing-assist", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: "Request failed" }));
-    throw new Error(err.error || `HTTP ${res.status}`);
+
+// ── Board persistence ──
+
+function loadBoard(): BlockInstance[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(BOARD_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
   }
-  return res.json();
 }
 
+function saveBoardToStorage(board: BlockInstance[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(BOARD_STORAGE_KEY, JSON.stringify(board));
+  } catch {}
+}
+
+// ── Main Component ──
+
 export default function WritingCenter() {
+  // Phase & block navigation
+  const [phase, setPhase] = useState<Phase>("workbench");
+  const [board, setBoard] = useState<BlockInstance[]>(() => loadBoard());
+  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+
+  // Core writing state (shared across blocks)
   const [genre, setGenre] = useState<Genre>("essay");
   const [topic, setTopic] = useState("");
   const [document, setDocument] = useState("");
@@ -85,14 +115,14 @@ export default function WritingCenter() {
   >(null);
   const [copied, setCopied] = useState(false);
 
-  // Daily tip state
+  // Daily tip
   const [dailyTip, setDailyTip] = useState<DailyTip | null>(null);
   const [showDailyTip, setShowDailyTip] = useState(true);
 
-  // Step cards state
+  // Step cards
   const [stepCards, setStepCards] = useState<StepCard[]>([]);
 
-  // Expanded annotation state
+  // Expanded annotation
   const [expandedAnnotation, setExpandedAnnotation] = useState<{
     id: string;
     detail: string;
@@ -104,28 +134,41 @@ export default function WritingCenter() {
   const [previousConventionsSuppressed, setPreviousConventionsSuppressed] =
     useState(false);
 
-  // Drag state for split pane
+  // Layout drag
   const [splitRatio, setSplitRatio] = useState(0.5);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
   const editorRef = useRef<EditorHandle>(null);
-
-  // Session word tracking for streak
   const sessionWordsRef = useRef(0);
 
-  // Load saved state on mount
+  // ── Derived state ──
+
+  const activeBlock = board.find((b) => b.id === activeBlockId) ?? null;
+  const activeBlockDef = activeBlock ? getBlockDef(activeBlock.type) : null;
+
+  // ── Lifecycle ──
+
+  // Check if user has a saved draft → jump to editor with board context
   useEffect(() => {
     const saved = loadState();
-    if (saved.draft.document) setDocument(saved.draft.document);
-    if (saved.draft.genre) setGenre(saved.draft.genre);
-    if (saved.draft.topic) setTopic(saved.draft.topic);
-    if (saved.draft.messages.length) setMessages(saved.draft.messages);
-    if (saved.draft.annotations.length)
-      setAnnotations(saved.draft.annotations);
+    if (saved.draft.document && saved.draft.document.trim()) {
+      setDocument(saved.draft.document);
+      setGenre(saved.draft.genre);
+      setTopic(saved.draft.topic);
+      if (saved.draft.messages.length) setMessages(saved.draft.messages);
+      if (saved.draft.annotations.length) setAnnotations(saved.draft.annotations);
+      // If board has a draft block, activate it; otherwise just go to editor
+      const draftBlock = board.find((b) => b.type === "draft");
+      if (draftBlock) {
+        setActiveBlockId(draftBlock.id);
+        updateBlockStatus(draftBlock.id, "active");
+      }
+      setPhase("writing");
+    }
     if (saved.profile) setProfile(saved.profile);
   }, []);
 
-  // Streak update on mount
+  // Streak on mount
   useEffect(() => {
     setProfile((prev) => updateStreak(prev));
   }, []);
@@ -136,7 +179,6 @@ export default function WritingCenter() {
       setShowDailyTip(false);
       return;
     }
-
     if (profile.stats.totalAnalyses >= 3) {
       const scores = latestTraitScores(profile);
       apiCall<DailyTipResponse>({
@@ -152,15 +194,13 @@ export default function WritingCenter() {
       const scores = latestTraitScores(profile);
       setDailyTip(selectStaticTip(scores, new Date()));
     }
-    // Run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Guide step cards when genre + topic set and editor empty
+  // Guide step cards when entering writing phase with genre + topic
   useEffect(() => {
-    if (!genre || !topic || document.trim()) return;
+    if (phase !== "writing" || !genre || !topic || document.trim()) return;
     const experienceLevel = profile.genreExperience[genre];
-
     apiCall<GuideStepResponse>({
       action: "guide",
       mode: "step",
@@ -171,64 +211,113 @@ export default function WritingCenter() {
       .then((data) => {
         if (data.cards) setStepCards(data.cards);
       })
-      .catch(() => {
-        // Silently fail — step cards are optional guidance
-      });
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [genre, topic]);
+  }, [phase, genre, topic]);
 
-  // 60s idle detection
-  useEffect(() => {
-    if (!document.trim()) return;
-    const timer = setTimeout(() => {
-      const idleMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content:
-          "I notice you've paused — need help with anything? Feel free to ask about your writing.",
-        timestamp: Date.now(),
-      };
-      setMessages((prev) => [...prev, idleMsg]);
-    }, 60000);
-    return () => clearTimeout(timer);
-  }, [document]);
+  // Memoize word count (used in render + streak tracking)
+  const wordCount = useMemo(() => countWords(document), [document]);
 
-  // Track words written for streak
+  // Word tracking for streak
   useEffect(() => {
-    const wc = countWords(document);
-    const delta = wc - sessionWordsRef.current;
-    if (delta > 0) sessionWordsRef.current = wc;
+    const delta = wordCount - sessionWordsRef.current;
+    if (delta > 0) sessionWordsRef.current = wordCount;
     if (sessionWordsRef.current >= 50) {
       setProfile((prev) => markDayActive(prev));
     }
-  }, [document]);
+  }, [wordCount]);
 
-  // Auto-save debounced 2s
+  // Auto-save writing state
   useEffect(() => {
+    if (phase === "workbench") return;
     const timer = setTimeout(() => {
       saveState({
-        draft: {
-          genre,
-          topic,
-          document,
-          messages,
-          annotations,
-          lastSaved: Date.now(),
-        },
+        draft: { genre, topic, document, messages, annotations, lastSaved: Date.now() },
         profile,
       });
     }, 2000);
     return () => clearTimeout(timer);
-  }, [document, messages, annotations, genre, topic, profile]);
+  }, [phase, document, messages, annotations, genre, topic, profile]);
 
-  // Clear error after 5s
+  // Save board (debounced to collapse rapid mutations)
+  useEffect(() => {
+    const timer = setTimeout(() => saveBoardToStorage(board), 300);
+    return () => clearTimeout(timer);
+  }, [board]);
+
+  // Clear error
   useEffect(() => {
     if (!error) return;
     const timer = setTimeout(() => setError(""), 5000);
     return () => clearTimeout(timer);
   }, [error]);
 
-  // ── Handlers ──────────────────────────────────────────────
+  // ── Board handlers ──
+
+  function updateBlockStatus(blockId: string, status: BlockInstance["status"]) {
+    setBoard((prev) =>
+      prev.map((b) => (b.id === blockId ? { ...b, status } : b))
+    );
+  }
+
+  function handleBlockClick(block: BlockInstance) {
+    const def = getBlockDef(block.type);
+    setActiveBlockId(block.id);
+    updateBlockStatus(block.id, "active");
+
+    switch (def.mode) {
+      case "chat":
+      case "checklist": // MVP: checklist uses chat view
+        setPhase("block-chat");
+        break;
+      case "editor":
+        setPhase("writing");
+        break;
+      case "lab":
+        setActiveTab("lab");
+        setPhase("writing");
+        break;
+    }
+  }
+
+  function handleStartWriting() {
+    // Start with the first undone block
+    const first = board.find((b) => b.status !== "done") ?? board[0];
+    if (first) {
+      handleBlockClick(first);
+    }
+  }
+
+  function handleBlockDone(blockId: string, output?: string) {
+    setBoard((prev) => {
+      const updated = prev.map((b) =>
+        b.id === blockId ? { ...b, status: "done" as const, output: output ?? b.output } : b
+      );
+      // Auto-advance to next undone block, or return to workbench
+      const currentIdx = updated.findIndex((b) => b.id === blockId);
+      const next = updated.find((b, i) => i > currentIdx && b.status !== "done");
+      if (next) {
+        // Schedule navigation outside the updater to avoid nested setState
+        queueMicrotask(() => handleBlockClick(next));
+      } else {
+        queueMicrotask(() => {
+          setActiveBlockId(null);
+          setPhase("workbench");
+        });
+      }
+      return updated;
+    });
+  }
+
+  function handleBackToBoard() {
+    if (activeBlockId) {
+      updateBlockStatus(activeBlockId, board.find(b => b.id === activeBlockId)?.output ? "done" : "todo");
+    }
+    setActiveBlockId(null);
+    setPhase("workbench");
+  }
+
+  // ── Writing phase handlers ──
 
   async function handleSendMessage(text: string) {
     const userMsg: ChatMessage = {
@@ -240,16 +329,21 @@ export default function WritingCenter() {
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
+    if (!topic && messages.length <= 2) {
+      setTopic(text.slice(0, 80));
+    }
+
     try {
       const allMessages = [...messages, userMsg];
       const data = await apiCall<GuideDialogueResponse>({
         action: "guide",
         mode: "dialogue",
         genre,
-        topic,
+        topic: topic || text,
         document,
         messages: allMessages,
       });
+
       const assistantMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -268,18 +362,15 @@ export default function WritingCenter() {
   async function handleAnalyze() {
     setLoading(true);
     setError("");
-
     try {
       const data = await apiCall<AnalyzeResponse>({
         action: "analyze",
         genre,
         document,
       });
-
       setAnnotations(data.annotations);
       setExpandedAnnotation(null);
 
-      // Update profile
       const snapshot = {
         date: new Date().toISOString().slice(0, 10),
         genre,
@@ -303,13 +394,11 @@ export default function WritingCenter() {
         return updated;
       });
 
-      // Conventions suppression recovery message
       if (previousConventionsSuppressed && !data.conventionsSuppressed) {
         const recoveryMsg: ChatMessage = {
           id: crypto.randomUUID(),
           role: "assistant",
-          content:
-            "Structure looks solid now — let's fine-tune the grammar.",
+          content: "Structure looks solid now — let's fine-tune the grammar.",
           timestamp: Date.now(),
         };
         setMessages((prev) => [recoveryMsg, ...prev]);
@@ -326,7 +415,6 @@ export default function WritingCenter() {
   async function handleAnnotationExpand(annotationId: string) {
     const annotation = annotations.find((a) => a.id === annotationId);
     if (!annotation) return;
-
     try {
       const data = await apiCall<ExpandResponse>({
         action: "expand",
@@ -336,14 +424,13 @@ export default function WritingCenter() {
       });
       setExpandedAnnotation({ id: annotationId, ...data });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to expand annotation";
+      const msg = err instanceof Error ? err.message : "Failed to expand";
       setError(msg);
     }
   }
 
   function handleAnnotationClickFromEditor(id: string) {
     setFocusedAnnotationId(id);
-    // Brief pulse then clear
     setTimeout(() => setFocusedAnnotationId(null), 2000);
   }
 
@@ -358,9 +445,18 @@ export default function WritingCenter() {
   }
 
   function handleTipTryIt(exercisePrompt: string) {
-    setDocument("");
     setTopic(exercisePrompt.slice(0, 60));
+    setGenre("essay");
     setShowDailyTip(false);
+    const existing = board.find((b) => b.type === "draft");
+    if (existing) {
+      handleBlockClick(existing);
+    } else {
+      const newBlock = createBlockInstance("draft");
+      setBoard((prev) => [...prev, newBlock]);
+      setActiveBlockId(newBlock.id);
+      setPhase("writing");
+    }
   }
 
   function handleTipDisable() {
@@ -371,12 +467,30 @@ export default function WritingCenter() {
     }));
   }
 
+  async function handleLabRewrite(
+    text: string,
+    temperatures: number[]
+  ): Promise<{ temperature: number; text: string; explanation: string }[]> {
+    const res = await apiCall<{
+      rewrites: { temperature: number; text: string; explanation: string }[];
+    }>({ action: "lab-rewrite", text, temperatures });
+    return res.rewrites;
+  }
+
+  function handleLabYourTurn(coldText: string, labTopic: string) {
+    setDocument(`<p>${coldText}</p>`);
+    setTopic(labTopic);
+    setAnnotations([]);
+    setStepCards([]);
+    setHasIncrementedThisSession(false);
+    setActiveTab("chat");
+  }
+
   // Drag handlers
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       isDragging.current = true;
-
       const onMove = (ev: MouseEvent) => {
         if (!isDragging.current || !containerRef.current) return;
         const rect = containerRef.current.getBoundingClientRect();
@@ -386,13 +500,11 @@ export default function WritingCenter() {
             : (ev.clientX - rect.left) / rect.width;
         setSplitRatio(Math.max(0.2, Math.min(0.8, ratio)));
       };
-
       const onUp = () => {
         isDragging.current = false;
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
       };
-
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
@@ -400,10 +512,7 @@ export default function WritingCenter() {
   );
 
   function handleCopy() {
-    const text = document
-      .replace(/<[^>]*>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    const text = document.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
     navigator.clipboard
       .writeText(text)
       .then(() => {
@@ -418,8 +527,35 @@ export default function WritingCenter() {
     setSplitRatio(0.5);
   }
 
-  const wordCount = countWords(document);
+  // ── Render ──
 
+  // Phase: Workbench (block selection & arrangement)
+  if (phase === "workbench") {
+    return (
+      <Workbench
+        board={board}
+        onBoardChange={setBoard}
+        onBlockClick={handleBlockClick}
+        onStartWriting={handleStartWriting}
+        streak={profile.streak.current}
+      />
+    );
+  }
+
+  // Phase: Block chat (Socratic chat for a specific block)
+  if (phase === "block-chat" && activeBlock) {
+    return (
+      <BlockChat
+        block={activeBlock}
+        sharedContext={{ topic, document, genre }}
+        onDone={(output) => handleBlockDone(activeBlock.id, output)}
+        onBack={handleBackToBoard}
+      />
+    );
+  }
+
+  // Phase: Writing (editor + analysis + lab)
+  // This is the full writing environment, now with block navigation
   const gridStyle: React.CSSProperties =
     layoutPreset === "full"
       ? {}
@@ -448,8 +584,71 @@ export default function WritingCenter() {
         </div>
       )}
 
+      {/* Block navigation bar (shows when board has blocks) */}
+      {board.length > 0 && (
+        <div className="h-9 bg-[var(--card)] border-b border-[var(--card-border)] flex items-center px-3 gap-1 shrink-0 overflow-x-auto">
+          <button
+            onClick={handleBackToBoard}
+            className="text-[10px] text-[var(--muted)] hover:text-[var(--foreground)] transition-colors mr-2 shrink-0"
+          >
+            ← Board
+          </button>
+          {board.map((block, idx) => {
+            const def = getBlockDef(block.type);
+            const isActive = block.id === activeBlockId;
+            return (
+              <button
+                key={block.id}
+                onClick={() => handleBlockClick(block)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition-all shrink-0 ${
+                  isActive
+                    ? "text-white"
+                    : block.status === "done"
+                      ? "bg-green-50 text-green-700"
+                      : "text-[var(--muted)] hover:bg-[var(--background)]"
+                }`}
+                style={isActive ? { background: def.color } : undefined}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ background: isActive ? "white" : def.color }}
+                />
+                {def.nameZh}
+                {block.status === "done" && !isActive && (
+                  <span className="text-[8px] opacity-60">&#10003;</span>
+                )}
+              </button>
+            );
+          })}
+          {/* Done button for current block */}
+          {activeBlock && (
+            <button
+              onClick={() => handleBlockDone(activeBlock.id)}
+              className="ml-auto text-[10px] font-medium px-2.5 py-1 rounded-md transition-all shrink-0"
+              style={{
+                background: activeBlockDef ? `${activeBlockDef.color}15` : undefined,
+                color: activeBlockDef?.color,
+                border: activeBlockDef ? `1px solid ${activeBlockDef.color}30` : undefined,
+              }}
+            >
+              Done →
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="h-10 bg-[var(--card)] border-b border-[var(--card-border)] flex items-center px-3 gap-2 shrink-0">
+        {board.length === 0 && (
+          <button
+            onClick={handleBackToBoard}
+            className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] transition-colors mr-1"
+            title="Back to workbench"
+          >
+            ← Back
+          </button>
+        )}
+
         <select
           value={genre}
           onChange={(e) => setGenre(e.target.value as Genre)}
@@ -466,7 +665,7 @@ export default function WritingCenter() {
           type="text"
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
-          placeholder="Enter your topic..."
+          placeholder="Topic..."
           className="flex-1 h-7 bg-[var(--background)] border border-[var(--card-border)] rounded-md text-xs text-[var(--foreground)] px-2.5 placeholder:text-[#c4bfb7] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]/30 min-w-0"
         />
 
@@ -479,68 +678,24 @@ export default function WritingCenter() {
         </button>
 
         <div className="flex items-center border border-[var(--card-border)] rounded-md overflow-hidden">
-          <button
-            onClick={() => handleLayoutChange("side")}
-            title="Side by side"
-            className={`h-7 w-7 flex items-center justify-center text-xs transition-colors ${
-              layoutPreset === "side"
-                ? "bg-[var(--accent)] text-white"
-                : "bg-[var(--background)] text-[var(--muted)] hover:text-[var(--foreground)]"
-            }`}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
+          {(["side", "top", "full"] as LayoutPreset[]).map((preset) => (
+            <button
+              key={preset}
+              onClick={() => handleLayoutChange(preset)}
+              title={preset === "side" ? "Side by side" : preset === "top" ? "Top and bottom" : "Editor only"}
+              className={`h-7 w-7 flex items-center justify-center text-xs transition-colors ${
+                layoutPreset === preset
+                  ? "bg-[var(--accent)] text-white"
+                  : "bg-[var(--background)] text-[var(--muted)] hover:text-[var(--foreground)]"
+              }`}
             >
-              <rect x="1" y="1" width="12" height="12" rx="1" />
-              <line x1="7" y1="1" x2="7" y2="13" />
-            </svg>
-          </button>
-          <button
-            onClick={() => handleLayoutChange("top")}
-            title="Top and bottom"
-            className={`h-7 w-7 flex items-center justify-center text-xs transition-colors ${
-              layoutPreset === "top"
-                ? "bg-[var(--accent)] text-white"
-                : "bg-[var(--background)] text-[var(--muted)] hover:text-[var(--foreground)]"
-            }`}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            >
-              <rect x="1" y="1" width="12" height="12" rx="1" />
-              <line x1="1" y1="7" x2="13" y2="7" />
-            </svg>
-          </button>
-          <button
-            onClick={() => handleLayoutChange("full")}
-            title="Editor only"
-            className={`h-7 w-7 flex items-center justify-center text-xs transition-colors ${
-              layoutPreset === "full"
-                ? "bg-[var(--accent)] text-white"
-                : "bg-[var(--background)] text-[var(--muted)] hover:text-[var(--foreground)]"
-            }`}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 14 14"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            >
-              <rect x="1" y="1" width="12" height="12" rx="1" />
-            </svg>
-          </button>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="1" y="1" width="12" height="12" rx="1" />
+                {preset === "side" && <line x1="7" y1="1" x2="7" y2="13" />}
+                {preset === "top" && <line x1="1" y1="7" x2="13" y2="7" />}
+              </svg>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -561,17 +716,20 @@ export default function WritingCenter() {
               onAnnotationClick={handleAnnotationClickFromEditor}
             />
           </div>
-          <div className="px-4 py-2 border-t border-[var(--card-border)] flex items-center">
+          <div className="px-4 py-2 border-t border-[var(--card-border)] flex items-center gap-3">
             <button
               onClick={handleAnalyze}
-              disabled={!document.trim() || loading}
+              disabled={wordCount < 100 || loading}
+              title={wordCount < 100 ? `Need ${100 - wordCount} more words` : "Analyze your writing"}
               className="bg-[var(--accent)] hover:bg-[#b5583a] disabled:bg-[#d4cfc7] disabled:text-[#a09a92] text-white text-xs font-medium px-4 py-1.5 rounded-md transition-all flex items-center gap-1.5"
             >
               {loading ? "Analyzing..." : "Analyze"}
-              {!loading && (
-                <span className="text-[10px] opacity-70">&#9654;</span>
-              )}
             </button>
+            {wordCount < 100 && wordCount > 0 && (
+              <span className="text-[10px] text-[var(--muted)]">
+                {100 - wordCount} words to go
+              </span>
+            )}
           </div>
         </div>
 
@@ -580,9 +738,7 @@ export default function WritingCenter() {
           <div
             onMouseDown={handleDragStart}
             className={`bg-[var(--card-border)] hover:bg-[var(--accent)]/40 transition-colors ${
-              layoutPreset === "side"
-                ? "cursor-col-resize"
-                : "cursor-row-resize"
+              layoutPreset === "side" ? "cursor-col-resize" : "cursor-row-resize"
             }`}
           />
         )}
@@ -590,7 +746,6 @@ export default function WritingCenter() {
         {/* Collaboration pane */}
         {layoutPreset !== "full" && (
           <div className="min-h-0 min-w-0 flex flex-col bg-[var(--background)] overflow-hidden">
-            {/* Tabs */}
             <div className="flex border-b border-[var(--card-border)] bg-[var(--card)] shrink-0">
               {tabs.map((tab) => (
                 <button
@@ -613,7 +768,6 @@ export default function WritingCenter() {
               ))}
             </div>
 
-            {/* Tab content */}
             <div className="flex-1 min-h-0 overflow-auto">
               {activeTab === "chat" && (
                 <ChatPanel
@@ -634,18 +788,17 @@ export default function WritingCenter() {
                   loading={loading}
                 />
               )}
-
               {activeTab === "dashboard" && (
                 <div className="flex items-center justify-center h-full p-4 text-[var(--muted)] text-sm text-center">
-                  Dashboard — Coming soon. Track your writing progress here.
+                  Dashboard — Coming soon.
                 </div>
               )}
-
               {activeTab === "lab" && (
-                <div className="flex items-center justify-center h-full p-4 text-[var(--muted)] text-sm text-center">
-                  Lab panel — coming soon. Practice exercises and rewriting
-                  drills.
-                </div>
+                <LabPanel
+                  onYourTurn={handleLabYourTurn}
+                  loading={loading}
+                  onLabRewrite={handleLabRewrite}
+                />
               )}
             </div>
           </div>
@@ -653,22 +806,27 @@ export default function WritingCenter() {
       </div>
 
       {/* Status bar */}
-      <div className="h-6 bg-[var(--accent)] flex items-center px-3 gap-3 shrink-0">
+      <div
+        className="h-6 flex items-center px-3 gap-3 shrink-0"
+        style={{ background: activeBlockDef?.color ?? "var(--accent)" }}
+      >
         <span className="text-white/80 text-[10px]">
           {wordCount > 0 ? `${wordCount} words` : "Ready"}
         </span>
-        <span className="text-white/50 text-[10px]">
-          {GENRE_LABELS[genre]}
-        </span>
+        {activeBlockDef && (
+          <span className="text-white/80 text-[10px]">
+            {activeBlockDef.nameZh}
+          </span>
+        )}
+        <span className="text-white/50 text-[10px]">{GENRE_LABELS[genre]}</span>
         {annotations.length > 0 && (
           <span className="text-white/80 text-[10px]">
-            {annotations.length} annotation
-            {annotations.length !== 1 ? "s" : ""}
+            {annotations.length} annotation{annotations.length !== 1 ? "s" : ""}
           </span>
         )}
         {profile.streak.current > 0 && (
           <span className="text-white/80 text-[10px]">
-            {"\uD83D\uDD25"} {profile.streak.current}-day streak
+            {profile.streak.current}-day streak
           </span>
         )}
       </div>

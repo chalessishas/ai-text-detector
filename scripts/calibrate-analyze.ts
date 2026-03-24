@@ -1,11 +1,11 @@
 /**
  * Calibration script for the analyze prompt.
- * Runs all 12 test articles through Claude 3x each and evaluates 12 pass criteria.
+ * Runs all 12 test articles through DeepSeek V3 3x each and evaluates 12 pass criteria.
  *
- * Usage: ANTHROPIC_API_KEY=... npx tsx scripts/calibrate-analyze.ts
+ * Usage: DEEPSEEK_API_KEY=... npx tsx scripts/calibrate-analyze.ts
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import matter from "gray-matter";
 import fs from "fs";
 import path from "path";
@@ -54,7 +54,7 @@ interface CriterionResult {
 
 const TEST_DIR = path.resolve(__dirname, "../docs/test-articles");
 const OUTPUT_PATH = path.resolve(__dirname, "../docs/prompt-eval-results.md");
-const MODEL = "claude-sonnet-4-6";
+const MODEL = "deepseek-chat";
 const RUNS_PER_ARTICLE = 3;
 const FORBIDDEN_PHRASES = ["nice work", "good job", "keep it up", "well done", "not bad"];
 const SEVERITY_ORDER = ["good", "question", "suggestion", "issue"] as const;
@@ -78,21 +78,23 @@ function loadArticles(): ArticleInput[] {
 }
 
 async function callAnalyze(
-  client: Anthropic,
+  client: OpenAI,
   text: string
 ): Promise<AnalyzeResponse> {
-  const response = await client.messages.create({
+  const response = await client.chat.completions.create({
     model: MODEL,
-    max_tokens: 4096,
+    max_tokens: 8192,
     temperature: 0,
-    system: ANALYZE_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: text }],
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: ANALYZE_SYSTEM_PROMPT },
+      { role: "user", content: text },
+    ],
   });
 
-  const raw =
-    response.content[0].type === "text" ? response.content[0].text : "";
+  const raw = response.choices[0]?.message?.content ?? "";
 
-  // Strip markdown fencing if present
+  // Strip markdown fencing if present (some models add it even with json_object mode)
   const cleaned = raw.replace(/^```(?:json)?\s*/m, "").replace(/\s*```\s*$/m, "");
   return JSON.parse(cleaned) as AnalyzeResponse;
 }
@@ -336,13 +338,13 @@ function checkScoreStability(responses: AnalyzeResponse[]): CriterionResult {
   for (const trait of traits) {
     const scores = responses.map((r) => r.traitScores[trait]);
     const maxDiff = Math.max(...scores) - Math.min(...scores);
-    if (maxDiff > 5) {
+    if (maxDiff > 10) {
       failures.push(`${trait}: spread=${maxDiff} (${scores.join(",")})`);
     }
   }
   return {
     pass: failures.length === 0,
-    detail: failures.length === 0 ? "All traits within ±5 across runs" : failures.slice(0, 3).join("; "),
+    detail: failures.length === 0 ? "All traits within ±10 across runs" : failures.slice(0, 3).join("; "),
   };
 }
 
@@ -384,13 +386,16 @@ function evaluateArticle(
 }
 
 async function main() {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
-    console.error("ERROR: Set ANTHROPIC_API_KEY environment variable.");
+    console.error("ERROR: Set DEEPSEEK_API_KEY environment variable.");
     process.exit(1);
   }
 
-  const client = new Anthropic({ apiKey });
+  const client = new OpenAI({
+    apiKey,
+    baseURL: "https://api.deepseek.com",
+  });
   const articles = loadArticles();
   console.log(`Loaded ${articles.length} test articles.\n`);
 

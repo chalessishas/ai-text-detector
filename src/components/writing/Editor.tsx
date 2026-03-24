@@ -119,6 +119,7 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
   ref
 ) {
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [StarterKit, createAnnotationExtension(annotations)],
     content,
     editable: !disabled,

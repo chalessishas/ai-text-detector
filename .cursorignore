@@ -1,0 +1,5 @@
+.next
+corpus/raw
+corpus/sentences.faiss
+node_modules
+*.jsonl

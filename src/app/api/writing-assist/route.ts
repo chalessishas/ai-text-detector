@@ -65,10 +65,12 @@ async function handleGuideStep(body: WritingAssistRequest): Promise<NextResponse
 
 async function handleGuideDialogue(body: WritingAssistRequest): Promise<NextResponse> {
   const client = getClient();
-  const { messages = [], document } = body;
+  const { messages = [], document, blockSystemPrompt } = body;
+
+  const systemPrompt = blockSystemPrompt || GUIDE_DIALOGUE_SYSTEM_PROMPT;
 
   const llmMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: GUIDE_DIALOGUE_SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
   ];
 
   if (document) {
@@ -196,13 +198,19 @@ async function handleLabRewrite(body: WritingAssistRequest): Promise<NextRespons
       const res = await client.chat.completions.create({
         model: MODEL,
         temperature: temp,
+        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: LAB_REWRITE_SYSTEM_PROMPT },
           { role: "user", content: text },
         ],
       });
-      const rewritten = res.choices[0].message.content ?? "";
-      return { temperature: temp, text: rewritten, explanation: "" };
+      const raw = res.choices[0].message.content ?? "{}";
+      const parsed = parseJSON<{ text?: string; explanation?: string }>(raw);
+      return {
+        temperature: temp,
+        text: parsed.text ?? raw,
+        explanation: parsed.explanation ?? "",
+      };
     }),
   );
 
@@ -244,9 +252,6 @@ export async function POST(req: NextRequest) {
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    const status = message === "API key not configured" || message === "Failed to parse AI response"
-      ? 500
-      : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

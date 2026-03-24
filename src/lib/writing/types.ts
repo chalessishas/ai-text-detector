@@ -99,6 +99,7 @@ export interface WritingAssistRequest {
   analysisHistory?: AnalysisSnapshot[];
   text?: string;
   temperatures?: number[];
+  blockSystemPrompt?: string;
   profile?: ReportProfileData;
 }
 

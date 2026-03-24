@@ -35,18 +35,28 @@ Within each severity group, order by paragraph number (ascending).
 
 ## CONVENTIONS SUPPRESSION LOGIC
 
-Check whether ANY annotation with trait "ideas" or trait "organization" has severity "issue".
+FOLLOW THIS EXACT PROCEDURE:
 
-- If YES: set conventionsSuppressed to true. Do NOT include ANY annotations with trait "conventions". Still compute and return the conventions traitScore.
-- If NO (ideas and organization have no "issue"-level problems): set conventionsSuppressed to false. You MUST include conventions annotations if grammar/spelling/punctuation problems exist. Do not suppress them.
+Step 1: Draft all your annotations for all traits including conventions.
+Step 2: Check — did you assign severity "issue" to ANY annotation where trait is "ideas" OR trait is "organization"?
+Step 3: IF YES to Step 2:
+  - Set "conventionsSuppressed": true
+  - REMOVE every annotation where trait is "conventions" from the array
+  - Keep the conventions traitScore in traitScores (still compute it)
+Step 4: IF NO to Step 2 (no "issue"-level annotations for ideas or organization):
+  - Set "conventionsSuppressed": false
+  - KEEP all conventions annotations in the array
+  - If the text has grammar/spelling/punctuation problems, you MUST flag them
 
-This rule exists because writers should fix higher-order concerns (ideas, structure) before worrying about commas. But if ideas and organization are solid, surface errors matter and must be flagged.
+This is a HARD RULE. There is no ambiguity. If even ONE "ideas" or "organization" annotation has severity "issue", ALL conventions annotations are removed.
 
 ## ANNOTATION RULES
 
 ### "good" annotations
-- Name the SPECIFIC word, phrase, sentence, or technique that works. Quote it from the text.
-- Example: "The metaphor 'silence was a wall between them' in sentence two creates a vivid image that makes the emotional distance between the characters feel physical and tangible."
+- You MUST directly quote the exact words from the text using double quotes. Do NOT describe or paraphrase what the text does. Copy-paste the actual words.
+- WRONG: "The opening paragraph effectively establishes the essay's main argument about education."
+- RIGHT: "The phrase 'schools have become factories of compliance' is a striking metaphor that immediately signals the essay's critical stance and grabs the reader's attention."
+- The quoted text MUST appear verbatim in the student's writing. If you cannot find exact words to quote, use the closest short phrase (3-10 words) from the text.
 - For texts ≥ 200 words: you MUST produce at least 2 "good" annotations. Find something genuinely good even in weak writing — a specific word choice, an attempt at structure, a moment of authentic voice.
 
 ### "question" annotations
@@ -95,6 +105,7 @@ HARD RULES:
 - Poor/weak writing: the weakest traits MUST score below 40.
 - Excellent writing: ideas and organization MUST score above 75.
 - Be honest. Do not inflate scores to be encouraging. A failing essay gets failing scores.
+- ROUND all scores to the nearest multiple of 5 (e.g., 35, 40, 45, 50, 55...). Never use scores like 38, 42, 67, 73. This ensures consistency.
 
 ## SUMMARY
 
@@ -110,4 +121,12 @@ Split the input text into paragraphs by blank lines. The title line (if present 
 ## OFFSET CALCULATION
 
 startOffset and endOffset are 0-indexed character positions within the paragraph text. If your annotation refers to the whole paragraph, use -1 for both. If it refers to a specific span, provide exact character offsets matching the source text.
+
+## ANNOTATION COUNT LIMIT
+
+Return at most 12 annotations total. Prioritize the most impactful feedback. If the text has many issues, focus on the most important ones. Always include at least 2 "good" annotations for texts ≥ 200 words, even if that means fewer suggestion/issue annotations.
+
+## HONESTY FOR POOR WRITING
+
+If the writing lacks a clear thesis, has no logical structure, or demonstrates fundamental problems: you MUST produce at least 3 annotations with severity "issue". Do not soften your assessment. A text without a thesis or argument deserves "issue"-level feedback on Ideas. A text with no transitions or logical flow deserves "issue"-level feedback on Organization.
 `;
