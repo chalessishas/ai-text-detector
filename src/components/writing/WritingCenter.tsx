@@ -25,14 +25,15 @@ import {
   incrementGenreExperience,
 } from "@/lib/writing/storage";
 import { selectStaticTip } from "@/lib/writing/daily-tips";
-import type { BlockInstance, BlockType } from "@/lib/writing/blocks";
-import { getBlockDef, createBlockInstance } from "@/lib/writing/blocks";
+import type { BlockInstance, BlockType, BlockCategory } from "@/lib/writing/blocks";
+import { getBlockDef, createBlockInstance, PHASE_TRANSITION_PROMPTS } from "@/lib/writing/blocks";
 import { apiCall } from "@/lib/writing/api";
 import Editor, { type EditorHandle } from "./Editor";
 import ChatPanel from "./ChatPanel";
 import LabPanel from "./LabPanel";
 import Workbench from "./Workbench";
 import BlockChat from "./BlockChat";
+import ChecklistPanel from "./ChecklistPanel";
 
 // ── Constants ──
 
@@ -50,7 +51,8 @@ type Tab = "chat" | "dashboard" | "lab";
 // Phase state machine:
 //   workbench → block-chat (for chat-mode blocks)
 //   workbench → writing    (for editor/lab/analyze blocks)
-type Phase = "workbench" | "block-chat" | "writing";
+//   workbench → checklist  (for checklist-mode blocks)
+type Phase = "workbench" | "block-chat" | "writing" | "checklist";
 
 const BOARD_STORAGE_KEY = "writing-center-board";
 
@@ -133,6 +135,9 @@ export default function WritingCenter() {
   // Conventions suppression tracking
   const [previousConventionsSuppressed, setPreviousConventionsSuppressed] =
     useState(false);
+
+  // Phase-transition micro-reflection (Yancey model)
+  const [reflectionPrompt, setReflectionPrompt] = useState<string | null>(null);
 
   // Layout drag
   const [splitRatio, setSplitRatio] = useState(0.5);
@@ -262,13 +267,27 @@ export default function WritingCenter() {
 
   function handleBlockClick(block: BlockInstance) {
     const def = getBlockDef(block.type);
+
+    // Check for phase-transition micro-reflection
+    if (activeBlock) {
+      const prevCategory = getBlockDef(activeBlock.type).category;
+      const nextCategory = def.category;
+      if (prevCategory !== nextCategory) {
+        const key = `${prevCategory}->${nextCategory}` as `${BlockCategory}->${BlockCategory}`;
+        const prompt = PHASE_TRANSITION_PROMPTS[key];
+        if (prompt) setReflectionPrompt(prompt);
+      }
+    }
+
     setActiveBlockId(block.id);
     updateBlockStatus(block.id, "active");
 
     switch (def.mode) {
       case "chat":
-      case "checklist": // MVP: checklist uses chat view
         setPhase("block-chat");
+        break;
+      case "checklist":
+        setPhase("checklist");
         break;
       case "editor":
         setPhase("writing");
@@ -542,15 +561,47 @@ export default function WritingCenter() {
     );
   }
 
+  // Micro-reflection banner (shown during phase transitions)
+  const reflectionBanner = reflectionPrompt ? (
+    <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 flex items-center gap-3 shrink-0">
+      <span className="text-amber-700 text-xs leading-relaxed flex-1">{reflectionPrompt}</span>
+      <button
+        onClick={() => setReflectionPrompt(null)}
+        className="text-amber-500 hover:text-amber-700 text-xs font-medium px-2 py-1 rounded shrink-0"
+      >
+        Got it
+      </button>
+    </div>
+  ) : null;
+
   // Phase: Block chat (Socratic chat for a specific block)
   if (phase === "block-chat" && activeBlock) {
     return (
-      <BlockChat
-        block={activeBlock}
-        sharedContext={{ topic, document, genre }}
-        onDone={(output) => handleBlockDone(activeBlock.id, output)}
-        onBack={handleBackToBoard}
-      />
+      <>
+        {reflectionBanner}
+        <BlockChat
+          block={activeBlock}
+          sharedContext={{ topic, document, genre }}
+          onDone={(output) => handleBlockDone(activeBlock.id, output)}
+          onBack={handleBackToBoard}
+        />
+      </>
+    );
+  }
+
+  // Phase: Checklist (self-review, peer-review, submit-ready)
+  if (phase === "checklist" && activeBlock) {
+    return (
+      <>
+        {reflectionBanner}
+        <ChecklistPanel
+          block={activeBlock}
+          document={document}
+          profile={profile}
+          onDone={(output) => handleBlockDone(activeBlock.id, output)}
+          onBack={handleBackToBoard}
+        />
+      </>
     );
   }
 
@@ -571,6 +622,9 @@ export default function WritingCenter() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Micro-reflection banner */}
+      {reflectionBanner}
+
       {/* Error banner */}
       {error && (
         <div className="bg-red-50 border-b border-red-200 px-4 py-2 flex items-center gap-2 shrink-0">
