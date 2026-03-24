@@ -782,10 +782,11 @@ if __name__ == '__main__':
     parser.add_argument('--corpus-dir', default='corpus')
     args = parser.parse_args()
 
+    host = os.environ.get("HOST", "127.0.0.1")
     humanizer = Humanizer(args.corpus_dir)
-    print(f"Humanizer server running at http://127.0.0.1:{args.port}", file=sys.stderr)
+    print(f"Humanizer server running at http://{host}:{args.port}", file=sys.stderr)
 
-    server = HumanizerServer(('127.0.0.1', args.port), Handler, humanizer)
+    server = HumanizerServer((host, args.port), Handler, humanizer)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

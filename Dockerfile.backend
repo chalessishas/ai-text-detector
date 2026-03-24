@@ -1,0 +1,39 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps for spaCy, faiss, torch
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python deps
+RUN pip install --no-cache-dir \
+    torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir \
+    transformers \
+    faiss-cpu \
+    spacy \
+    sentence-transformers \
+    numpy \
+    scikit-learn
+
+# Download spaCy model
+RUN python -m spacy download en_core_web_sm
+
+# Copy scripts
+COPY scripts/perplexity.py scripts/perplexity.py
+COPY scripts/humanizer.py scripts/humanizer.py
+COPY entrypoint.sh entrypoint.sh
+RUN chmod +x entrypoint.sh
+
+# Data dirs (will be mounted as Railway volume)
+RUN mkdir -p /data/models/detector /data/corpus
+
+ENV HOST=0.0.0.0
+ENV CLASSIFIER_PATH=/data/models/detector
+ENV CORPUS_DIR=/data/corpus
+
+EXPOSE 5001 5002
+
+CMD ["./entrypoint.sh"]
