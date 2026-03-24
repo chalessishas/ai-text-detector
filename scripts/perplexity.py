@@ -309,6 +309,24 @@ def compute_specdetect_energy(logprobs):
     return round(energy, 3)
 
 
+def compute_min_window_ppl(logprobs, window=32):
+    """Sliding window minimum perplexity.
+
+    AI text has consistently low PPL across all windows.
+    Human text may have low-PPL segments but also high-PPL segments.
+    min-window-PPL captures the "most AI-like" segment of the text.
+    """
+    if len(logprobs) < window:
+        return math.exp(-sum(logprobs) / len(logprobs)) if logprobs else 999
+    min_ppl = float('inf')
+    for i in range(len(logprobs) - window + 1):
+        w = logprobs[i:i + window]
+        ppl = math.exp(-sum(w) / len(w))
+        if ppl < min_ppl:
+            min_ppl = ppl
+    return round(min_ppl, 2)
+
+
 def compute_perplexity_score(tokens):
     """Compute aggregate stats from token data, run LR classifier for AI probability."""
     if not tokens:
@@ -330,8 +348,12 @@ def compute_perplexity_score(tokens):
     # SpecDetect DFT total energy
     spec_energy = compute_specdetect_energy(logprobs)
 
+    # Sliding window min-PPL (captures most AI-like segment)
+    min_window_ppl = compute_min_window_ppl(logprobs, window=32)
+
     result = {
         "perplexity": round(ppl, 2),
+        "min_window_ppl": min_window_ppl,
         "top10_pct": round(top10, 1),
         "top1_pct": round(top1, 1),
         "mean_entropy": round(mean_ent, 2),
@@ -418,31 +440,50 @@ class Handler(BaseHTTPRequestHandler):
                 # Validated: 91% OOD accuracy on 22-text benchmark.
                 deb_ai = result.get("classification", {}).get("ai_score", 50)
                 ppl_stats = result.get("perplexity_stats") or {}
+                has_ppl = ppl_stats is not None and "perplexity" in ppl_stats
                 ppl_val = ppl_stats.get("perplexity", 20)
                 top10 = ppl_stats.get("top10_pct", 80)
                 mean_ent = ppl_stats.get("mean_entropy", 2.5)
                 lr_ai = ppl_stats.get("lr_ai_probability", 50)
 
-                # PPL signal: model-agnostic, strong OOD generalization
-                # AI text: low PPL (<12), high Top10 (>85%), low entropy (<2.0)
-                # Human text: high PPL (>20), low Top10 (<78%), high entropy (>2.5)
-                ppl_ai_signal = (ppl_val < 12 and top10 > 85)
-                ppl_human_signal = (ppl_val > 20 and top10 < 78)
-
-                if ppl_ai_signal:
-                    # PPL strongly says AI — override DeBERTa if it disagrees
-                    fused = max(deb_ai, 85)
-                    signal_source = "ppl_override_ai"
-                elif ppl_human_signal:
-                    # PPL strongly says human — override DeBERTa if it disagrees
-                    fused = min(deb_ai, 15)
-                    signal_source = "ppl_override_human"
-                else:
-                    # Ambiguous PPL — weighted blend, DeBERTa gets more weight
-                    fused = deb_ai * 0.6 + lr_ai * 0.4
-                    signal_source = "blended"
-
                 word_count = len(text.split())
+
+                # DeBERTa-only fast path: no perplexity model → use raw DeBERTa score
+                if not has_ppl:
+                    fused = deb_ai
+                    signal_source = f"deberta_only(deb={deb_ai:.0f})"
+                    ppl_ai_signal = False
+                    ppl_human_signal = False
+                else:
+                    # Multi-signal weighted vote
+                    min_ppl = ppl_stats.get("min_window_ppl", ppl_val)
+
+                    if ppl_val < 8 and top10 > 85:
+                        ppl_score = 95
+                    elif ppl_val < 12 and top10 > 80:
+                        ppl_score = 80
+                    elif ppl_val > 30 and top10 < 70:
+                        ppl_score = 10
+                    elif ppl_val > 20 and top10 < 78:
+                        ppl_score = 20
+                    else:
+                        ppl_score = 50
+
+                    if min_ppl < 6:
+                        ppl_score = max(ppl_score, 75)
+
+                    if lr_ai > 85:
+                        fused = lr_ai * 0.55 + deb_ai * 0.25 + ppl_score * 0.20
+                        signal_source = f"lr_confident(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score})"
+                    elif lr_ai < 15:
+                        fused = lr_ai * 0.55 + deb_ai * 0.25 + ppl_score * 0.20
+                        signal_source = f"lr_confident(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score})"
+                    else:
+                        fused = lr_ai * 0.40 + deb_ai * 0.35 + ppl_score * 0.25
+                        signal_source = f"vote(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score})"
+
+                    ppl_ai_signal = ppl_score >= 80
+                    ppl_human_signal = ppl_score <= 20
                 if word_count < 150:
                     threshold = 65
                 elif word_count < 300:
