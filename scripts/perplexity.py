@@ -442,6 +442,25 @@ def preprocess_for_detection(text):
     Returns cleaned text suitable for PPL/LR/DeBERTa analysis.
     """
     import re
+    import unicodedata
+
+    # 0. Unicode homoglyph normalization — map lookalike chars to ASCII
+    # Greek/Cyrillic letters that look identical to Latin ones
+    CONFUSABLES = {
+        "\u0391": "A", "\u0392": "B", "\u0395": "E", "\u0396": "Z",
+        "\u0397": "H", "\u0399": "I", "\u039A": "K", "\u039C": "M",
+        "\u039D": "N", "\u039F": "O", "\u03A1": "P", "\u03A4": "T",
+        "\u03A5": "Y", "\u03A7": "X",
+        "\u03B1": "a", "\u03B5": "e", "\u03B9": "i", "\u03BF": "o",
+        "\u03C1": "p", "\u03C5": "u",
+        # Cyrillic
+        "\u0410": "A", "\u0412": "B", "\u0415": "E", "\u041A": "K",
+        "\u041C": "M", "\u041D": "H", "\u041E": "O", "\u0420": "P",
+        "\u0421": "C", "\u0422": "T", "\u0423": "Y", "\u0425": "X",
+        "\u0430": "a", "\u0435": "e", "\u043E": "o", "\u0440": "p",
+        "\u0441": "c", "\u0443": "y", "\u0445": "x",
+    }
+    text = "".join(CONFUSABLES.get(ch, ch) for ch in text)
 
     # 1. Strip emoji and other Unicode symbols that inflate PPL
     # Covers emoticons, dingbats, symbols, pictographs, flags, etc.
