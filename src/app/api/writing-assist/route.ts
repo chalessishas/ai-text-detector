@@ -17,6 +17,8 @@ import { EXPAND_SYSTEM_PROMPT } from "@/lib/prompts/writing/expand";
 import { DAILY_TIP_SYSTEM_PROMPT } from "@/lib/prompts/writing/daily-tip";
 import { LAB_REWRITE_SYSTEM_PROMPT } from "@/lib/prompts/writing/lab-rewrite";
 import { selectStaticTip } from "@/lib/writing/daily-tips";
+import { AUTO_PROMPTS } from "@/lib/prompts/writing/auto-prompts";
+import type { AutoExecuteResponse, GrammarOutput, PipelineOutputs } from "@/lib/writing/types";
 
 const MODEL = "deepseek-chat";
 
@@ -218,6 +220,94 @@ async function handleLabRewrite(body: WritingAssistRequest): Promise<NextRespons
   return NextResponse.json(data);
 }
 
+async function handleAutoExecute(body: WritingAssistRequest): Promise<NextResponse> {
+  const { blockType, genre, topic, language, document, previousOutputs } = body;
+
+  if (!blockType || !["draft", "analyze", "grammar"].includes(blockType)) {
+    return NextResponse.json({ error: "Invalid blockType" }, { status: 400 });
+  }
+  if (!topic) {
+    return NextResponse.json({ error: "Topic is required" }, { status: 400 });
+  }
+
+  const client = getClient();
+  const systemPrompt = AUTO_PROMPTS[`${blockType}-auto`];
+  if (!systemPrompt) {
+    return NextResponse.json({ error: `No auto prompt for ${blockType}` }, { status: 400 });
+  }
+
+  const lang = language === "zh" ? "Chinese" : "English";
+
+  if (blockType === "draft") {
+    const userContext = buildDraftContext(genre!, topic, lang, previousOutputs);
+    const res = await client.chat.completions.create({
+      model: MODEL,
+      temperature: 0.7,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContext },
+      ],
+    });
+    const text = res.choices[0].message.content ?? "";
+    const result: AutoExecuteResponse = {
+      dialogue: `Wrote a ${wordCount(text)}-word ${genre} essay based on your thesis and outline.`,
+      documentUpdate: text.trim(),
+    };
+    return NextResponse.json(result);
+  }
+
+  if (blockType === "analyze") {
+    if (!document) {
+      return NextResponse.json({ error: "Document required for analyze" }, { status: 400 });
+    }
+    const res = await client.chat.completions.create({
+      model: MODEL,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: document },
+      ],
+    });
+    const data = parseJSON<{ annotations: unknown[]; traitScores: Record<string, number>; summary: string; conventionsSuppressed: boolean }>(
+      res.choices[0].message.content ?? ""
+    );
+    const result: AutoExecuteResponse = {
+      dialogue: `Analyzed the essay across 7 traits. ${data.summary}`,
+      analysisResult: data as AnalyzeResponse,
+    };
+    return NextResponse.json(result);
+  }
+
+  // grammar
+  if (!document) {
+    return NextResponse.json({ error: "Document required for grammar" }, { status: 400 });
+  }
+  const res = await client.chat.completions.create({
+    model: MODEL,
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: document },
+    ],
+  });
+  const data = parseJSON<GrammarOutput>(res.choices[0].message.content ?? "");
+  const result: AutoExecuteResponse = {
+    dialogue: `Fixed ${data.corrections.length} mechanical error${data.corrections.length !== 1 ? "s" : ""}.`,
+    grammarResult: data,
+  };
+  return NextResponse.json(result);
+}
+
+function buildDraftContext(genre: string, topic: string, language: string, outputs?: PipelineOutputs): string {
+  const parts = [`Genre: ${genre}`, `Topic: ${topic}`, `Language: ${language}`];
+  if (outputs?.thesis?.userInput) parts.push(`Thesis: ${outputs.thesis.userInput}`);
+  if (outputs?.outline?.userInput) parts.push(`Outline:\n${outputs.outline.userInput}`);
+  if (outputs?.hook?.userInput) parts.push(`Hook concept: ${outputs.hook.userInput}`);
+  return parts.join("\n\n");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body: WritingAssistRequest = await req.json();
@@ -240,6 +330,9 @@ export async function POST(req: NextRequest) {
 
       case "lab-rewrite":
         return await handleLabRewrite(body);
+
+      case "auto-execute":
+        return await handleAutoExecute(body);
 
       case "report":
         return NextResponse.json({ error: "Not available yet" }, { status: 501 });

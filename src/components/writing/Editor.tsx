@@ -134,6 +134,13 @@ const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(
     },
   });
 
+  // Reactively toggle editability when disabled prop changes
+  useEffect(() => {
+    if (editor) {
+      editor.setEditable(!disabled);
+    }
+  }, [editor, disabled]);
+
   useImperativeHandle(ref, () => ({
     scrollToAnnotation(id: string) {
       const el = editor?.view.dom.querySelector(

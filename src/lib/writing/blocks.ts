@@ -52,6 +52,13 @@ export type BlockCategory =
 // How the block renders its UI
 export type BlockMode = "chat" | "editor" | "lab" | "checklist";
 
+export interface BlockAutoConfig {
+  needs: string[];       // Required inputs from user or previous block
+  produces: string;      // Key name for this block's output in PipelineOutputs
+  checkpoint: boolean;   // Whether to pause for user input
+  promptKey: string;     // Key into AUTO_PROMPTS (lives in auto-prompts.ts)
+}
+
 export interface BlockDef {
   type: BlockType;
   name: string;
@@ -61,6 +68,7 @@ export interface BlockDef {
   color: string;
   mode: BlockMode;
   aiRole: string;
+  auto?: BlockAutoConfig | null;
 }
 
 // Runtime state for a block on the user's board
@@ -124,6 +132,12 @@ export const BLOCK_CATALOG: BlockDef[] = [
     color: "#e0a458",
     mode: "chat",
     aiRole: "Challenges your thesis through Socratic questioning until it's sharp and defensible",
+    auto: {
+      needs: ["topic"],
+      produces: "thesis",
+      checkpoint: true,
+      promptKey: "thesis-checkpoint",
+    },
   },
   {
     type: "outline",
@@ -134,6 +148,12 @@ export const BLOCK_CATALOG: BlockDef[] = [
     color: "#d4983e",
     mode: "chat",
     aiRole: "Helps organize your ideas into a logical structure without writing content for you",
+    auto: {
+      needs: ["thesis"],
+      produces: "outline",
+      checkpoint: true,
+      promptKey: "outline-checkpoint",
+    },
   },
   {
     type: "evidence-eval",
@@ -156,6 +176,12 @@ export const BLOCK_CATALOG: BlockDef[] = [
     color: "#2d4a6f",
     mode: "chat",
     aiRole: "Guides you to write an opening that grabs attention — asks what you want the reader to feel in the first 10 seconds",
+    auto: {
+      needs: ["thesis", "outline"],
+      produces: "hook",
+      checkpoint: true,
+      promptKey: "hook-checkpoint",
+    },
   },
   {
     type: "draft",
@@ -166,6 +192,12 @@ export const BLOCK_CATALOG: BlockDef[] = [
     color: "#3d5a80",
     mode: "editor",
     aiRole: "Minimal presence. Only offers encouragement and word count goals. Your words, your voice.",
+    auto: {
+      needs: ["thesis", "outline", "hook"],
+      produces: "draft",
+      checkpoint: false,
+      promptKey: "draft-auto",
+    },
   },
   {
     type: "evidence",
@@ -230,6 +262,12 @@ export const BLOCK_CATALOG: BlockDef[] = [
     color: "#5b8a72",
     mode: "editor",
     aiRole: "Scores 7 writing traits and provides specific, actionable annotations",
+    auto: {
+      needs: ["draft"],
+      produces: "analyze",
+      checkpoint: false,
+      promptKey: "analyze-auto",
+    },
   },
   {
     type: "logic-check",
@@ -284,6 +322,12 @@ export const BLOCK_CATALOG: BlockDef[] = [
     color: "#7d6558",
     mode: "editor",
     aiRole: "Flags mechanical errors with direct corrections. The one block where AI gives you the fix, not just a question.",
+    auto: {
+      needs: ["analyze"],
+      produces: "grammar",
+      checkpoint: false,
+      promptKey: "grammar-auto",
+    },
   },
 
   // ─── Publishing ───

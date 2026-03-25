@@ -16,6 +16,9 @@ interface WorkbenchProps {
   onBoardChange: (board: BlockInstance[]) => void;
   onBlockClick: (block: BlockInstance) => void;
   onStartWriting: () => void;
+  onAutoStart?: () => void;
+  language: "en" | "zh";
+  onLanguageChange: (lang: "en" | "zh") => void;
   streak: number;
 }
 
@@ -24,10 +27,17 @@ export default function Workbench({
   onBoardChange,
   onBlockClick,
   onStartWriting,
+  onAutoStart,
+  language,
+  onLanguageChange,
   streak,
 }: WorkbenchProps) {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+
+  const TOEFL_AUTO_BLOCKS: BlockType[] = ["thesis", "outline", "hook", "draft", "analyze", "grammar"];
+  const isAutoEnabled = board.length === TOEFL_AUTO_BLOCKS.length
+    && board.every((b, i) => b.type === TOEFL_AUTO_BLOCKS[i]);
 
   // Group catalog by category
   const grouped = CATEGORY_ORDER.map((cat) => ({
@@ -225,13 +235,42 @@ export default function Workbench({
                   );
                 })}
 
-                {/* Start button */}
-                <button
-                  onClick={onStartWriting}
-                  className="w-full bg-[var(--foreground)] hover:bg-[var(--foreground)]/90 text-white text-sm font-medium py-3 rounded-lg transition-all mt-4"
-                >
-                  Start with {getBlockDef(board[0].type).nameZh} →
-                </button>
+                {/* Start buttons */}
+                <div className="space-y-2 mt-4">
+                  <button
+                    onClick={onStartWriting}
+                    className="w-full bg-[var(--foreground)] hover:bg-[var(--foreground)]/90 text-white text-sm font-medium py-3 rounded-lg transition-all"
+                  >
+                    Start with {getBlockDef(board[0].type).nameZh} →
+                  </button>
+                  {onAutoStart && (
+                    <>
+                      {isAutoEnabled && (
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="text-[10px] text-[var(--muted)]">Language:</span>
+                          <button
+                            onClick={() => onLanguageChange(language === "en" ? "zh" : "en")}
+                            className="text-[10px] font-medium px-2 py-0.5 rounded border border-[var(--card-border)] hover:border-[var(--accent)]/40 transition-colors"
+                          >
+                            {language === "en" ? "English" : "中文"}
+                          </button>
+                        </div>
+                      )}
+                      <button
+                        onClick={onAutoStart}
+                        disabled={!isAutoEnabled}
+                        title={!isAutoEnabled ? "Auto mode supports TOEFL preset only for now" : "AI executes blocks, you provide ideas"}
+                        className={`w-full text-sm font-medium py-3 rounded-lg transition-all border ${
+                          isAutoEnabled
+                            ? "bg-[var(--accent)] hover:bg-[#b5583a] text-white border-transparent"
+                            : "bg-[var(--background)] text-[var(--muted)] border-[var(--card-border)] cursor-not-allowed"
+                        }`}
+                      >
+                        Auto-start →
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             )}
           </div>

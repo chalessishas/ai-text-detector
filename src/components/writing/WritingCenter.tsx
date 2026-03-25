@@ -34,6 +34,7 @@ import LabPanel from "./LabPanel";
 import Workbench from "./Workbench";
 import BlockChat from "./BlockChat";
 import ChecklistPanel from "./ChecklistPanel";
+import AutoExecutor from "./AutoExecutor";
 
 // ── Constants ──
 
@@ -94,6 +95,8 @@ function saveBoardToStorage(board: BlockInstance[]) {
 export default function WritingCenter() {
   // Phase & block navigation
   const [phase, setPhase] = useState<Phase>("workbench");
+  const [executionMode, setExecutionMode] = useState<"manual" | "auto">("manual");
+  const [language, setLanguage] = useState<"en" | "zh">("en");
   const [board, setBoard] = useState<BlockInstance[]>(() => loadBoard());
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
 
@@ -305,6 +308,19 @@ export default function WritingCenter() {
     if (first) {
       handleBlockClick(first);
     }
+  }
+
+  function handleAutoStart() {
+    if (!topic.trim()) {
+      setError("Please enter a topic before starting auto mode.");
+      return;
+    }
+    if (genre !== "academic") setGenre("academic");
+    setExecutionMode("auto");
+  }
+
+  function handleAutoExit() {
+    setExecutionMode("manual");
   }
 
   function handleBlockDone(blockId: string, output?: string) {
@@ -548,6 +564,19 @@ export default function WritingCenter() {
 
   // ── Render ──
 
+  // Auto-execution mode — completely separate render path
+  if (executionMode === "auto") {
+    return (
+      <AutoExecutor
+        board={board}
+        genre={genre}
+        topic={topic}
+        language={language}
+        onExit={handleAutoExit}
+      />
+    );
+  }
+
   // Phase: Workbench (block selection & arrangement)
   if (phase === "workbench") {
     return (
@@ -556,6 +585,9 @@ export default function WritingCenter() {
         onBoardChange={setBoard}
         onBlockClick={handleBlockClick}
         onStartWriting={handleStartWriting}
+        onAutoStart={handleAutoStart}
+        language={language}
+        onLanguageChange={setLanguage}
         streak={profile.streak.current}
       />
     );

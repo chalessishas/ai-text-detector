@@ -1,5 +1,7 @@
 // src/lib/writing/types.ts
 
+import type { BlockInstance } from "./blocks";
+
 export type Genre = "essay" | "article" | "academic" | "creative" | "business";
 export type Trait = "ideas" | "organization" | "voice" | "wordChoice" | "fluency" | "conventions" | "presentation";
 export type Severity = "good" | "question" | "suggestion" | "issue";
@@ -32,6 +34,48 @@ export interface Annotation {
   severity: Severity;
   message: string;
   rewrite?: string;
+}
+
+export interface IdeaCheckpointOutput {
+  userInput: string;
+}
+
+export interface DraftOutput {
+  document: string; // Plain text with \n\n paragraph breaks
+}
+
+export interface GrammarOutput {
+  document: string; // Plain text (corrected)
+  corrections: Array<{
+    original: string;
+    corrected: string;
+    reason: string;
+  }>;
+}
+
+export type PipelineOutputs = {
+  thesis?: IdeaCheckpointOutput;
+  outline?: IdeaCheckpointOutput;
+  hook?: IdeaCheckpointOutput;
+  draft?: DraftOutput;
+  analyze?: AnalyzeResponse;
+  grammar?: GrammarOutput;
+};
+
+export type PipelineStatus = 'idle' | 'executing' | 'checkpoint' | 'done' | 'cancelled' | 'error';
+
+export interface PipelineState {
+  blocks: BlockInstance[];
+  currentIndex: number;
+  outputs: PipelineOutputs;
+  status: PipelineStatus;
+  document: string;
+  language: 'en' | 'zh';
+  executionLog: Array<{
+    blockType: string;
+    dialogue: string;
+    timestamp: number;
+  }>;
 }
 
 export interface DailyTip {
@@ -86,7 +130,7 @@ export interface WritingCenterState {
 // -- API Request/Response --
 
 export interface WritingAssistRequest {
-  action: "guide" | "analyze" | "expand" | "daily-tip" | "lab-rewrite" | "report";
+  action: "guide" | "analyze" | "expand" | "daily-tip" | "lab-rewrite" | "report" | "auto-execute";
   mode?: "step" | "dialogue";
   genre?: Genre;
   topic?: string;
@@ -101,6 +145,26 @@ export interface WritingAssistRequest {
   temperatures?: number[];
   blockSystemPrompt?: string;
   profile?: ReportProfileData;
+  blockType?: "draft" | "analyze" | "grammar";
+  language?: 'en' | 'zh';
+  previousOutputs?: PipelineOutputs;
+}
+
+export interface AutoExecuteRequest {
+  action: "auto-execute";
+  blockType: "draft" | "analyze" | "grammar";
+  genre: string;
+  topic: string;
+  language: 'en' | 'zh';
+  document?: string;
+  previousOutputs?: PipelineOutputs;
+}
+
+export interface AutoExecuteResponse {
+  dialogue: string;
+  documentUpdate?: string;
+  analysisResult?: AnalyzeResponse;
+  grammarResult?: GrammarOutput;
 }
 
 export interface GuideStepResponse {
