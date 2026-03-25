@@ -75,12 +75,13 @@ def load_classifier():
         return None, None
 
 
-def classify_text(tokenizer, model, text):
-    """Run DeBERTa inference, return binary human/AI prediction.
+TEMPERATURE = float(os.environ.get("DEBERTA_TEMPERATURE", "2.0"))
 
-    Model is 4-class internally but we collapse to binary:
-      Human side = P(human) + P(human_polished)
-      AI side    = P(ai) + P(ai_polished)
+def classify_text(tokenizer, model, text):
+    """Run DeBERTa inference with temperature scaling + logit gap confidence.
+
+    Temperature scaling (Guo et al. 2017) softens overconfident outputs.
+    Logit gap measures true model uncertainty (more reliable than softmax).
     """
     import torch
 
@@ -91,17 +92,33 @@ def classify_text(tokenizer, model, text):
     with torch.no_grad():
         logits = model(**inputs).logits
 
-    probs = torch.softmax(logits, dim=-1).cpu().numpy()[0]
-    ai_score = float(probs[1] + probs[2]) * 100  # P(ai) + P(ai_polished)
-    human_score = float(probs[0] + probs[3]) * 100  # P(human) + P(human_polished)
-    prediction = "ai" if ai_score > 50 else "human"
+    # Temperature scaling: soften extreme 0/100 outputs
+    scaled_logits = logits / TEMPERATURE
+    probs = torch.softmax(scaled_logits, dim=-1).cpu().numpy()[0]
+    raw_logits = logits.cpu().numpy()[0]
+
+    ai_score = float(probs[1] + probs[2]) * 100
+    human_score = float(probs[0] + probs[3]) * 100
+
+    # Logit gap: raw measure of model certainty (immune to softmax saturation)
+    ai_logit = float(raw_logits[1] + raw_logits[2])
+    human_logit = float(raw_logits[0] + raw_logits[3])
+    logit_gap = abs(ai_logit - human_logit)
+
+    # Uncertain when logit gap is small (model genuinely doesn't know)
+    is_uncertain = logit_gap < 2.0
+    if is_uncertain:
+        prediction = "uncertain"
+    else:
+        prediction = "ai" if ai_score > 50 else "human"
 
     return {
         "prediction": prediction,
         "ai_score": round(ai_score, 1),
         "human_score": round(human_score, 1),
         "confidence": round(max(ai_score, human_score), 1),
-        # Keep 4-class detail available for future use
+        "logit_gap": round(logit_gap, 2),
+        "is_uncertain": is_uncertain,
         "_4class": {name: round(float(probs[i]), 4) for i, name in enumerate(LABEL_NAMES)},
     }
 
@@ -449,9 +466,16 @@ class Handler(BaseHTTPRequestHandler):
                 word_count = len(text.split())
 
                 # DeBERTa-only fast path: no perplexity model → use raw DeBERTa score
+                clf_data = result.get("classification", {})
+                is_uncertain = clf_data.get("is_uncertain", False)
+
                 if not has_ppl:
                     fused = deb_ai
-                    signal_source = f"deberta_only(deb={deb_ai:.0f})"
+                    if is_uncertain:
+                        fused = 50  # genuinely uncertain → report 50%
+                        signal_source = f"deberta_uncertain(gap={clf_data.get('logit_gap', '?')})"
+                    else:
+                        signal_source = f"deberta_only(deb={deb_ai:.0f})"
                     ppl_ai_signal = False
                     ppl_human_signal = False
                 else:
