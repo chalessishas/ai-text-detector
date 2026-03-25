@@ -693,9 +693,11 @@ class Handler(BaseHTTPRequestHandler):
                 lr_ai = ppl_stats.get("lr_ai_probability", 50)
 
                 # Binoculars signal (0-100 scale, higher = more AI-like)
+                # NOTE: Currently disabled in fusion — llama3.2 1b/3b pair lacks
+                # separation (scores overlap for AI/human). Kept for API exposure.
                 bino = result.get("binoculars")
-                has_bino = bino is not None and "score" in (bino or {})
-                if has_bino:
+                has_bino = False  # Disabled until calibrated with better model pair
+                if bino is not None and "score" in (bino or {}):
                     bino_score = bino["score"]
                     # Map binoculars score to 0-100: <0.7 = very AI (95), 0.7-0.9 = AI (75),
                     # 0.9-1.1 = uncertain (50), >1.1 = human (20), >1.3 = very human (5)
