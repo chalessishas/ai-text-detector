@@ -172,6 +172,105 @@ def load_model():
         return None
 
 
+# ── Binoculars (dual-model detection, Hans et al. ICML 2024) ─────────────
+
+BINOCULARS_OBSERVER_PATH = os.path.expanduser(
+    "~/.ollama/models/blobs/sha256-74701a8c35f6c8d9a4b91f3f3497643001d63e0c7a84e085bed452548fa88d45"
+)  # llama3.2:1b
+BINOCULARS_PERFORMER_PATH = os.path.expanduser(
+    "~/.ollama/models/blobs/sha256-dde5aa3fc5ffc17176b5e8bdc82f587b24b2678c6c66101bf7da77af9f7ccdff"
+)  # llama3.2:3b
+
+
+def load_binoculars():
+    """Load observer (1b) + performer (3b) for Binoculars scoring."""
+    if not os.path.exists(BINOCULARS_OBSERVER_PATH) or not os.path.exists(BINOCULARS_PERFORMER_PATH):
+        print("Binoculars: missing model(s), disabled.", file=sys.stderr)
+        return None
+    try:
+        from llama_cpp import Llama
+        observer = Llama(model_path=BINOCULARS_OBSERVER_PATH, n_ctx=512, n_threads=4, logits_all=True, verbose=False)
+        performer = Llama(model_path=BINOCULARS_PERFORMER_PATH, n_ctx=512, n_threads=4, logits_all=True, verbose=False)
+        print("Binoculars: llama3.2:1b (observer) + llama3.2:3b (performer) loaded.", file=sys.stderr)
+        return (observer, performer)
+    except Exception as e:
+        print(f"Binoculars load failed: {e}", file=sys.stderr)
+        return None
+
+
+def compute_binoculars(observer, performer, text):
+    """Compute Binoculars score: log_ppl(observer) / cross_ppl(observer←performer).
+
+    Low score (~0.5-0.8) = likely AI, high score (~0.9-1.2+) = likely human.
+    Threshold from paper: 0.9015 (low-FPR mode).
+    """
+    tokens = observer.tokenize(text.encode())
+    if len(tokens) < 10:
+        return None
+
+    # Limit to 512 tokens
+    tokens = tokens[:512]
+
+    # Get observer logits
+    observer.reset()
+    observer.eval(tokens)
+    obs_logits = np.array(observer.scores[:len(tokens)-1])  # (seq_len-1, vocab)
+
+    # Get performer logits
+    performer.reset()
+    performer.eval(tokens)
+    perf_logits = np.array(performer.scores[:len(tokens)-1])
+
+    # Ensure same shape
+    min_vocab = min(obs_logits.shape[1], perf_logits.shape[1])
+    obs_logits = obs_logits[:, :min_vocab]
+    perf_logits = perf_logits[:, :min_vocab]
+
+    # Observer log-perplexity: how surprised is observer by the actual next tokens
+    from scipy.special import log_softmax
+    obs_log_probs = log_softmax(obs_logits, axis=-1)
+    actual_next_tokens = tokens[1:]
+    obs_token_logprobs = []
+    for i, tok in enumerate(actual_next_tokens):
+        if tok < min_vocab:
+            obs_token_logprobs.append(obs_log_probs[i, tok])
+        else:
+            obs_token_logprobs.append(-10.0)  # unknown token penalty
+    log_ppl = -np.mean(obs_token_logprobs)
+
+    # Cross-perplexity: observer evaluates performer's predictions
+    # For each position, use performer's predicted distribution, score it with observer's model
+    perf_log_probs = log_softmax(perf_logits, axis=-1)
+
+    # cross_ppl = avg(-sum(performer_prob * observer_logprob)) over positions
+    cross_entropy_per_pos = []
+    for i in range(len(actual_next_tokens)):
+        # Performer's probability distribution at position i
+        perf_probs = np.exp(perf_log_probs[i])
+        # Observer's log probabilities at position i
+        obs_lp = obs_log_probs[i]
+        # Cross entropy: -sum(p_performer * log_p_observer)
+        # Only compute over top-k tokens for efficiency
+        top_k = 100
+        top_indices = np.argpartition(perf_probs, -top_k)[-top_k:]
+        ce = -np.sum(perf_probs[top_indices] * obs_lp[top_indices])
+        cross_entropy_per_pos.append(ce)
+
+    cross_ppl = np.mean(cross_entropy_per_pos)
+
+    # Binoculars score
+    if cross_ppl < 1e-6:
+        return None
+    score = log_ppl / cross_ppl
+
+    return {
+        "score": round(float(score), 4),
+        "log_ppl": round(float(log_ppl), 3),
+        "cross_ppl": round(float(cross_ppl), 3),
+        "ai_probability": round(float(max(0, min(100, (1.0 - score) * 100))), 1),
+    }
+
+
 def compute_features(model_tuple, text):
     """Dispatch to MLX or llama-cpp backend."""
     if model_tuple is None:
@@ -557,6 +656,18 @@ class Handler(BaseHTTPRequestHandler):
                     result = compute_features(self.server.model_tuple, analysis_text)
                 else:
                     result = {"tokens": []}
+                # Binoculars dual-model scoring
+                if self.server.binoculars:
+                    try:
+                        bino = compute_binoculars(
+                            self.server.binoculars[0],
+                            self.server.binoculars[1],
+                            analysis_text,
+                        )
+                        if bino:
+                            result["binoculars"] = bino
+                    except Exception as e:
+                        print(f"Binoculars error: {e}", file=sys.stderr)
                 # Aggregate perplexity stats + LR AI probability
                 result["perplexity_stats"] = compute_perplexity_score(result.get("tokens", []))
                 # DeBERTa binary classification
@@ -580,6 +691,28 @@ class Handler(BaseHTTPRequestHandler):
                 top10 = ppl_stats.get("top10_pct", 80)
                 mean_ent = ppl_stats.get("mean_entropy", 2.5)
                 lr_ai = ppl_stats.get("lr_ai_probability", 50)
+
+                # Binoculars signal (0-100 scale, higher = more AI-like)
+                bino = result.get("binoculars")
+                has_bino = bino is not None and "score" in (bino or {})
+                if has_bino:
+                    bino_score = bino["score"]
+                    # Map binoculars score to 0-100: <0.7 = very AI (95), 0.7-0.9 = AI (75),
+                    # 0.9-1.1 = uncertain (50), >1.1 = human (20), >1.3 = very human (5)
+                    if bino_score < 0.7:
+                        bino_ai = 95
+                    elif bino_score < 0.85:
+                        bino_ai = 80
+                    elif bino_score < 0.95:
+                        bino_ai = 60
+                    elif bino_score < 1.1:
+                        bino_ai = 40
+                    elif bino_score < 1.3:
+                        bino_ai = 20
+                    else:
+                        bino_ai = 5
+                else:
+                    bino_ai = 50  # neutral if unavailable
 
                 word_count = len(analysis_text.split())
 
@@ -676,18 +809,23 @@ class Handler(BaseHTTPRequestHandler):
                     has_lr = lr_ai != 50  # LR model actually loaded
 
                     # Consensus override: when 2+ strong signals agree, trust them
-                    strong_ai = sum(1 for s in [deb_ai, ppl_score, stat_score, lr_ai] if s > 80)
-                    strong_human = sum(1 for s in [100-deb_ai, 100-ppl_score, 100-stat_score, 100-lr_ai] if s > 80)
+                    all_signals = [deb_ai, ppl_score, stat_score, lr_ai]
+                    if has_bino:
+                        all_signals.append(bino_ai)
+                    strong_ai = sum(1 for s in all_signals if s > 80)
+                    strong_human = sum(1 for s in [100-s for s in all_signals] if s > 80)
 
                     if has_lr and strong_ai >= 2 and strong_human == 0:
                         # Multiple signals strongly agree AI — consensus overrides dissent
-                        scores = [deb_ai, ppl_score, stat_score, lr_ai]
-                        fused = sum(scores) / 4  # simple average when consensus
-                        signal_source = f"consensus_ai(deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},lr={lr_ai:.0f})"
+                        scores = all_signals
+                        fused = sum(scores) / len(scores)  # simple average when consensus
+                        bino_str = f",bino={bino_ai}" if has_bino else ""
+                        signal_source = f"consensus_ai(deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},lr={lr_ai:.0f}{bino_str})"
                     elif has_lr and strong_human >= 2 and strong_ai == 0:
                         scores = [deb_ai, ppl_score, stat_score, lr_ai]
                         fused = sum(scores) / 4
-                        signal_source = f"consensus_human(deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},lr={lr_ai:.0f})"
+                        bino_str = f",bino={bino_ai}" if has_bino else ""
+                        signal_source = f"consensus_human(deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},lr={lr_ai:.0f}{bino_str})"
                     elif has_lr and lr_ai > 85:
                         # LR confident AI — trust LR but keep DeBERTa voice
                         fused = lr_ai * 0.35 + deb_ai * 0.30 + ppl_score * 0.20 + stat_score * 0.15
@@ -780,11 +918,12 @@ class Handler(BaseHTTPRequestHandler):
 class PerplexityServer(HTTPServer):
     allow_reuse_address = True
 
-    def __init__(self, addr, handler, model_tuple, classifier_tokenizer=None, classifier_model=None):
+    def __init__(self, addr, handler, model_tuple, classifier_tokenizer=None, classifier_model=None, binoculars=None):
         super().__init__(addr, handler)
         self.model_tuple = model_tuple
         self.classifier_tokenizer = classifier_tokenizer
         self.classifier_model = classifier_model
+        self.binoculars = binoculars
 
 
 if __name__ == "__main__":
@@ -794,8 +933,10 @@ if __name__ == "__main__":
     model_tuple = load_model()
     print("Loading classifier...", file=sys.stderr)
     clf_tokenizer, clf_model = load_classifier()
+    print("Loading Binoculars...", file=sys.stderr)
+    binoculars = load_binoculars()
     print(f"Server running at http://{host}:{port}", file=sys.stderr)
-    server = PerplexityServer((host, port), Handler, model_tuple, clf_tokenizer, clf_model)
+    server = PerplexityServer((host, port), Handler, model_tuple, clf_tokenizer, clf_model, binoculars)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
