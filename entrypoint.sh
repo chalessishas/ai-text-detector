@@ -12,12 +12,17 @@ echo "Gateway port: $GATEWAY_PORT"
 
 # ── Auto-download model data if missing ──
 
-if [ ! -f "$DATA_DIR/models/detector/model.safetensors" ]; then
-    echo "Downloading DeBERTa model from GitHub Release..."
+# Download domain-expanded model (v2: trained on 692 cross-domain samples)
+MODEL_FILE="detector_domain.tar.gz"
+MODEL_MARKER="$DATA_DIR/models/detector/.domain_v2"
+if [ ! -f "$MODEL_MARKER" ]; then
+    echo "Downloading domain-expanded DeBERTa model..."
+    rm -rf "$DATA_DIR/models/detector"
     mkdir -p "$DATA_DIR/models/detector"
-    curl -sL "https://github.com/$GITHUB_REPO/releases/download/$RELEASE_TAG/detector.tar.gz" \
+    curl -sL "https://github.com/$GITHUB_REPO/releases/download/$RELEASE_TAG/$MODEL_FILE" \
         | tar xz -C "$DATA_DIR/models/detector/"
-    echo "DeBERTa model downloaded."
+    touch "$MODEL_MARKER"
+    echo "DeBERTa domain model downloaded."
 fi
 
 # FAISS corpus (future: add to GitHub Release or download from cloud storage)
