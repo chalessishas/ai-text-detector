@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import type { BlockType } from "@/lib/writing/blocks";
 import { getBlockDef } from "@/lib/writing/blocks";
 import type {
@@ -44,6 +44,8 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
   const [showLog, setShowLog] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const editorRef = useRef<EditorHandle>(null);
+  // Track document version from auto blocks to avoid re-rendering on user edits
+  const [autoDocVersion, setAutoDocVersion] = useState(0);
 
   const currentBlock = board[currentIndex];
   const currentDef = currentBlock ? getBlockDef(currentBlock.type) : null;
@@ -106,6 +108,7 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
         setCurrentIndex(idx);
         setOutputs(outs);
         setDocument(doc);
+        setAutoDocVersion((v) => v + 1);
         setStatus("checkpoint");
         setCheckpointInput("");
         return;
@@ -124,6 +127,7 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
         idx = result.nextIndex;
         setOutputs(outs);
         setDocument(doc);
+        setAutoDocVersion((v) => v + 1);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Execution failed");
         setStatus("error");
@@ -139,6 +143,7 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
 
     setOutputs(outs);
     setDocument(doc);
+    setAutoDocVersion((v) => v + 1);
     setStatus("done");
   }, [board, executeBlock]);
 
@@ -370,6 +375,10 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
     </div>
   );
 
+  // Only recompute HTML when document changes from auto blocks, not user edits
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const editorContent = useMemo(() => textToHtml(document), [autoDocVersion]);
+
   return (
     <div className="flex flex-col h-full">
       {progressBar}
@@ -379,7 +388,7 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
           <div className="flex-1">
             <Editor
               ref={editorRef}
-              content={textToHtml(document)}
+              content={editorContent}
               onUpdate={(html) => {
                 if (!editorDisabled) {
                   const text = html.replace(/<\/p>\s*<p[^>]*>/g, "\n\n").replace(/<[^>]*>/g, "").trim();
