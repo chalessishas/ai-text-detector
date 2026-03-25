@@ -1,10 +1,40 @@
 # AI Text X-Ray — 项目状态
 
-> 最后更新: 2026-03-24 00:15
+> 最后更新: 2026-03-25 16:05
 
 ---
 
 ## 最近更新（新的在上面）
+
+### [2026-03-25 16:05] — 四路投票系统 + qwen3:4b PPL 升级
+
+- **做了什么**（13:37 - 16:05，约 2.5 小时自治循环）：
+  1. **检测评分重构**：单信号 DeBERTa → 四路投票（DeBERTa + qwen3:4b PPL + LR + 统计特征）
+  2. **PPL 模型升级**：llama3.2:1b → qwen3:4b（AI ppl 7.83→4.82，2x 信号分离）
+  3. **本地 LR 训练**：80 样本多文体，sklearn Pipeline，91.2% CV 准确率
+  4. **统计特征信号**：句长变异系数、过渡词密度、标点多样性（对 typo 攻击免疫）
+  5. **共识覆盖规则**：2+ 信号强同意时覆盖异议信号
+  6. **DeBERTa dampening**：PPL+LR 与 DeBERTa 冲突时降低 DeBERTa 权重到 10%
+  7. **Uncertain 判定**：fused score 在 threshold ±8 范围内输出 "uncertain"
+  8. **前端**：AppShell.tsx 支持 "Insufficient evidence" 显示
+  9. **CLAUDE.md 更新**：完整反映四路投票架构
+  10. **研究报告**：docs/research/2026-03-25-14.md
+
+- **对抗测试结果**（15 轮，~25 个用例）：
+  - 假阳性率：3/6 (50%) → **0% on all human texts**
+  - AI 标准检出：✓
+  - 已防御对抗：口语注入、第一人称注入、列举体、邮件体
+  - 不可防御：typos、Quillbot、对话体包装、短句拆分、emoji、代码混合
+
+- **新增文件**：
+  - `scripts/train_lr_local.py` — 本地 LR 训练脚本
+  - `models/perplexity_lr_v2.pkl` — 80 样本 LR 模型
+  - `docs/chronicle/2026-03-25.md` — 完整编年记录
+  - `docs/research/2026-03-25-14.md` — 研究报告
+
+- **5 个 commits pushed**：124ad5a → 7fee504
+
+- **关键洞察**：DeBERTa 跨域 AUROC 0.5-0.6（论文证实），信号双向不可靠。PPL+LR+stat 三路组合比 DeBERTa 单路更稳定。规则工程已到天花板（140 行 if-else），下一步应走产品转型或模型重训。
 
 ### [2026-03-24 00:15] — 夜间自治：盲区诊断 → 数据增强 → 本地微调 → 91.3%
 
