@@ -142,20 +142,30 @@ def load_model():
     except Exception as e:
         print(f"MLX not available ({e}), trying llama-cpp...", file=sys.stderr)
 
-    # Fallback: llama-cpp llama3.2:1b
-    model_path = os.environ.get(
-        "MODEL_PATH",
-        os.path.expanduser(
-            "~/.ollama/models/blobs/sha256-74701a8c35f6c8d9a4b91f3f3497643001d63e0c7a84e085bed452548fa88d45"
-        ),
+    # Fallback: llama-cpp — try qwen3:4b first (better signal), then llama3.2:1b
+    qwen3_path = os.path.expanduser(
+        "~/.ollama/models/blobs/sha256-3e4cb14174460404e7a233e531675303b2fbf7749c02f91864fe311ab6344e4f"
     )
-    if not os.path.exists(model_path):
-        print(f"No perplexity model found. Token analysis disabled.", file=sys.stderr)
-        return None
+    llama_path = os.path.expanduser(
+        "~/.ollama/models/blobs/sha256-74701a8c35f6c8d9a4b91f3f3497643001d63e0c7a84e085bed452548fa88d45"
+    )
+    model_path = os.environ.get("MODEL_PATH", "")
+    if not model_path:
+        if os.path.exists(qwen3_path):
+            model_path = qwen3_path
+            model_name = "qwen3:4b"
+        elif os.path.exists(llama_path):
+            model_path = llama_path
+            model_name = "llama3.2:1b"
+        else:
+            print("No perplexity model found. Token analysis disabled.", file=sys.stderr)
+            return None
+    else:
+        model_name = "custom"
     try:
         from llama_cpp import Llama
         llm = Llama(model_path=model_path, n_ctx=2048, n_threads=4, logits_all=True, verbose=False)
-        print(f"Perplexity model: llama-cpp llama3.2:1b", file=sys.stderr)
+        print(f"Perplexity model: llama-cpp {model_name}", file=sys.stderr)
         return ("llama", llm)
     except Exception as e:
         print(f"Failed to load perplexity model: {e}", file=sys.stderr)
