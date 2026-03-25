@@ -1,3 +1,5 @@
+export const maxDuration = 60; // Vercel Fluid Compute: extend timeout for DeepSeek API calls
+
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import type {
