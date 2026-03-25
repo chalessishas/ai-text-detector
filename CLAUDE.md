@@ -1,6 +1,6 @@
 # AI Text X-Ray
 
-AI 文本检测 + 人性化改写 + 写作教练三合一平台。DeBERTa 4 分类器（95.3%）+ 50M 真人语料库 FAISS 改写 + DeepSeek V3 写作辅导。
+AI 文本检测 + 人性化改写 + 写作教练三合一平台。四路投票检测（DeBERTa + qwen3:4b PPL + LR + 统计特征）+ 50M 真人语料库 FAISS 改写 + DeepSeek V3 写作辅导。
 
 ## Tech Stack
 
@@ -102,6 +102,9 @@ ai-text-detector/
 12. **tokenizer.vocab_size != model vocab** — Qwen3.5 tokenizer reports 248044 but model has 248320. Use `model(mx.array([[1]])).shape[-1]`.
 13. **CoPA contrastive decoding doesn't fool DeBERTa** — 0/6 pass rate. Only changes surface stats, deep classifier catches it. StealthRL (GRPO LoRA) is the correct approach.
 14. **PPL human ranges are model-specific** — Don't copy from literature. Calibrate on dataset.jsonl with the same model used for detection.
+15. **DeBERTa cross-domain AUROC is 0.5-0.6** — Essentially random on unseen domains. Learns model fingerprints, not universal AI patterns. See docs/research/2026-03-25-14.md.
+16. **LR model must match PPL model** — Switching PPL model (e.g. llama3.2:1b → qwen3:4b) requires retraining LR via `scripts/train_lr_local.py`.
+17. **Fusion logic is 140+ lines of if-else** — Rule engineering has reached its ceiling. Next improvement requires model-level changes, not more rules.
 
 ## Environment Setup
 
@@ -127,13 +130,40 @@ npm run humanizer  # Python humanize service (port 5002, loads FAISS + spaCy)
 
 ## Detector Scoring
 
+### Four-Signal Fusion (2026-03-25 overhaul)
+
+Detection uses 4 independent signals combined via adaptive weighted voting:
+
+| Signal | Source | What it measures | Reliability |
+|--------|--------|-----------------|-------------|
+| DeBERTa | `models/detector/` | Token-level style fingerprint | **Unreliable** — AUROC 0.5-0.6 cross-domain, both false positives and false negatives |
+| PPL | qwen3:4b via llama-cpp | Token perplexity (how predictable text is) | Moderate — AI ppl ~5, human ~10-25 |
+| LR | `models/perplexity_lr_v2.pkl` | 16-feature logistic regression (PPL + DivEye + SpecDetect) | 91.2% CV (80 samples) |
+| Stat | Inline in perplexity.py | Sentence length CV, transition word density, punctuation diversity | Typo-resistant but coarse |
+
+**Fusion logic** (perplexity.py lines 558-620):
+- Consensus: when 2+ signals strongly agree (>80), simple average overrides dissent
+- DeBERTa dampening: when PPL+LR or PPL+stat disagree with DeBERTa, DeBERTa weight drops to 10%
+- Uncertainty zone: fused score within threshold ±8 → prediction = "uncertain"
+- No LR fallback: DeBERTa 40% + PPL 35% + stat 25%
+
+**DeBERTa 4-class** (unchanged):
+
 | Class | Label | Test Accuracy |
 |-------|-------|---------------|
-| 0-3 | 4-class overall | **98.5%** (retrained 2026-03-23 on clean dataset) |
+| 0-3 | 4-class overall | **98.5%** (retrained 2026-03-23 on clean dataset, but poor real-world generalization) |
 
-Binary mode: P(human) = P(class 0) + P(class 3), P(ai) = P(class 1) + P(class 2). See STATUS.md for per-class breakdown.
+Binary mode: P(human) = P(class 0) + P(class 3), P(ai) = P(class 1) + P(class 2).
 
-### 5-Feature Heuristic Weights
+**Known limitations** (from 20+ adversarial tests):
+- 0% false positive on human text (all human texts correctly identified)
+- Typos/misspellings bypass all signals (DeBERTa + PPL + LR)
+- Quillbot paraphrase bypasses PPL and LR
+- Dialogue-format and short-sentence AI text bypasses all signals
+- Wikipedia-style AI text bypasses DeBERTa and LR
+- Code-mixed text confuses PPL
+
+### Legacy 5-Feature Heuristic (frontend only, 300+ words)
 
 | Feature | Weight | AI Range | Human Range |
 |---------|--------|----------|-------------|
