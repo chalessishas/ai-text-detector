@@ -176,7 +176,8 @@ export default function AppShell() {
     if (s > 30) return "bg-amber-50 border-amber-200";
     return "bg-emerald-50 border-emerald-200";
   }
-  function scoreLabel(s: number) {
+  function scoreLabel(s: number, fused?: { prediction?: string }) {
+    if (fused?.prediction === "uncertain") return "Uncertain — low confidence";
     if (s > 70) return "Likely AI-generated";
     if (s > 30) return "Inconclusive";
     return "Likely Human-written";
@@ -325,7 +326,7 @@ function DetectPanel({
   onAnalyze: () => void;
   scoreColor: (s: number) => string;
   scoreBg: (s: number) => string;
-  scoreLabel: (s: number) => string;
+  scoreLabel: (s: number, fused?: { prediction?: string }) => string;
   renderChart: () => React.ReactNode;
 }) {
   return (
@@ -359,6 +360,14 @@ function DetectPanel({
           </div>
         </div>
 
+        {/* Beta warning */}
+        <div className="rounded-lg px-3 py-2 bg-amber-50 border border-amber-200">
+          <span className="text-[10px] font-semibold text-amber-700">Beta</span>
+          <span className="text-[10px] text-amber-600 ml-1.5">
+            Best on English essays. May misclassify creative writing, legal, or technical text.
+          </span>
+        </div>
+
         {result && result.scoringEligible && (
           <div className={`rounded-xl border overflow-hidden ${scoreBg(result.overallScore)}`}>
             {/* Verdict hero */}
@@ -381,7 +390,7 @@ function DetectPanel({
               </div>
               <div className="flex-1">
                 <div className={`text-base font-semibold ${scoreColor(result.overallScore)}`}>
-                  {scoreLabel(result.overallScore)}
+                  {scoreLabel(result.overallScore, result.fused)}
                 </div>
                 <div className="text-xs text-[var(--muted)] mt-1">
                   {result.fused?.prediction === "ai" ? "AI-generated" : "Human-written"}
