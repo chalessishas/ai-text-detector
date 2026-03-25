@@ -435,6 +435,91 @@ def compute_perplexity_score(tokens):
     return result
 
 
+def preprocess_for_detection(text):
+    """Clean text before detection to counter known adversarial bypasses.
+
+    Handles: emoji injection, dialogue formatting, code blocks, short sentence splitting.
+    Returns cleaned text suitable for PPL/LR/DeBERTa analysis.
+    """
+    import re
+
+    # 1. Strip emoji and other Unicode symbols that inflate PPL
+    # Covers emoticons, dingbats, symbols, pictographs, flags, etc.
+    emoji_pattern = re.compile(
+        "[\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols & pictographs
+        "\U0001F680-\U0001F6FF"  # transport & map
+        "\U0001F1E0-\U0001F1FF"  # flags
+        "\U00002702-\U000027B0"  # dingbats
+        "\U0000FE00-\U0000FE0F"  # variation selectors
+        "\U0001F900-\U0001F9FF"  # supplemental symbols
+        "\U0001FA00-\U0001FA6F"  # chess symbols
+        "\U0001FA70-\U0001FAFF"  # symbols extended-A
+        "\U00002600-\U000026FF"  # misc symbols
+        "\U0000200D"             # zero width joiner
+        "\U00003030\U0000303D"   # wavy dash, part alternation mark
+        "]+", flags=re.UNICODE
+    )
+    cleaned = emoji_pattern.sub(" ", text)
+
+    # 2. Strip dialogue markers — convert "She said X" / "He replied Y" to just X, Y
+    # Remove common dialogue tags
+    cleaned = re.sub(
+        r'["\u201c\u201d]([^"\u201c\u201d]{10,})["\u201c\u201d]\s*'
+        r'(?:,?\s*(?:she|he|they|I)\s+(?:said|asked|replied|continued|added|noted|explained|whispered|shouted|exclaimed|responded|answered|remarked|observed|commented|muttered)\.?\s*)',
+        r'\1. ', cleaned, flags=re.IGNORECASE
+    )
+    # Also handle: she said, "..."
+    cleaned = re.sub(
+        r'(?:she|he|they|I)\s+(?:said|asked|replied|continued|added|noted|explained)\s*[,:]?\s*["\u201c\u201d]([^"\u201c\u201d]{10,})["\u201c\u201d]\.?\s*',
+        r'\1. ', cleaned, flags=re.IGNORECASE
+    )
+    # Remove remaining quotation marks from dialogue
+    cleaned = re.sub(r'["\u201c\u201d]', '', cleaned)
+    # Remove action tags like "She nodded thoughtfully."
+    cleaned = re.sub(
+        r'\b(?:She|He|They)\s+(?:nodded|smiled|laughed|sighed|shrugged|paused|frowned|grinned)\b[^.]*\.\s*',
+        '', cleaned
+    )
+
+    # 3. Strip markdown formatting
+    cleaned = re.sub(r'^#{1,6}\s+', '', cleaned, flags=re.MULTILINE)  # headers
+    cleaned = re.sub(r'^\s*[-*]\s+', '', cleaned, flags=re.MULTILINE)  # bullet points
+    cleaned = re.sub(r'`[^`]+`', '', cleaned)  # inline code
+    cleaned = re.sub(r'```[\s\S]*?```', '', cleaned)  # code blocks
+
+    # 4. Merge very short sentences (< 5 words) with neighbors
+    # This counters the "short sentence splitting" attack
+    sentences = re.split(r'(?<=[.!?])\s+', cleaned)
+    merged = []
+    buffer = ""
+    for s in sentences:
+        s = s.strip()
+        if not s:
+            continue
+        if len(s.split()) < 5 and buffer:
+            buffer += " " + s
+        elif len(s.split()) < 5 and not buffer:
+            buffer = s
+        else:
+            if buffer:
+                merged.append(buffer + " " + s)
+                buffer = ""
+            else:
+                merged.append(s)
+    if buffer:
+        if merged:
+            merged[-1] += " " + buffer
+        else:
+            merged.append(buffer)
+    cleaned = " ".join(merged)
+
+    # 5. Normalize whitespace
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+    return cleaned
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -445,8 +530,12 @@ class Handler(BaseHTTPRequestHandler):
             result = {"error": "No text provided"}
         else:
             try:
+                # Preprocess to counter adversarial bypasses
+                cleaned_text = preprocess_for_detection(text)
+                analysis_text = cleaned_text if len(cleaned_text) > 20 else text
+
                 if self.server.model_tuple:
-                    result = compute_features(self.server.model_tuple, text)
+                    result = compute_features(self.server.model_tuple, analysis_text)
                 else:
                     result = {"tokens": []}
                 # Aggregate perplexity stats + LR AI probability
@@ -455,9 +544,9 @@ class Handler(BaseHTTPRequestHandler):
                 clf_tok = self.server.classifier_tokenizer
                 clf_mod = self.server.classifier_model
                 if clf_tok and clf_mod:
-                    result["classification"] = classify_text(clf_tok, clf_mod, text)
-                # AI Vocab analysis
-                ai_vocab_density, ai_vocab_hits = compute_ai_vocab(text)
+                    result["classification"] = classify_text(clf_tok, clf_mod, analysis_text)
+                # AI Vocab analysis (use original text for vocab, cleaned for scoring)
+                ai_vocab_density, ai_vocab_hits = compute_ai_vocab(analysis_text)
                 result["ai_vocab"] = {
                     "density": ai_vocab_density,
                     "matches": ai_vocab_hits,
@@ -473,7 +562,7 @@ class Handler(BaseHTTPRequestHandler):
                 mean_ent = ppl_stats.get("mean_entropy", 2.5)
                 lr_ai = ppl_stats.get("lr_ai_probability", 50)
 
-                word_count = len(text.split())
+                word_count = len(analysis_text.split())
 
                 # DeBERTa-only fast path: no perplexity model → use raw DeBERTa score
                 clf_data = result.get("classification", {})
@@ -515,7 +604,7 @@ class Handler(BaseHTTPRequestHandler):
                         ppl_score = max(ppl_score, 80)
 
                     # Statistical text features (typo-resistant, no model needed)
-                    sentences_list = [s.strip() for s in text.replace('!', '.').replace('?', '.').split('.') if s.strip()]
+                    sentences_list = [s.strip() for s in analysis_text.replace('!', '.').replace('?', '.').split('.') if s.strip()]
                     stat_score = 50  # default neutral
                     if len(sentences_list) >= 3:
                         sent_lens = [len(s.split()) for s in sentences_list]
@@ -529,13 +618,13 @@ class Handler(BaseHTTPRequestHandler):
                                           'accordingly', 'subsequently', 'in conclusion', 'in summary',
                                           'it is important to note', 'it is worth noting',
                                           'significantly', 'notably', 'fundamentally'}
-                        words_lower = text.lower()
+                        words_lower = analysis_text.lower()
                         tw_count = sum(1 for tw in transition_words if tw in words_lower)
                         tw_density = tw_count / max(len(sentences_list), 1)
 
                         # Punctuation diversity
                         punct_types = set()
-                        for ch in text:
+                        for ch in analysis_text:
                             if ch in '—–-…();:!?"\'':
                                 punct_types.add(ch)
                         punct_div = len(punct_types)
