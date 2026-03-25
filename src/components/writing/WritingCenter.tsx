@@ -311,10 +311,8 @@ export default function WritingCenter() {
   }
 
   function handleAutoStart() {
-    if (!topic.trim()) {
-      setError("Please enter a topic before starting auto mode.");
-      return;
-    }
+    // No topic validation — the first checkpoint (thesis) collects the user's core idea,
+    // which serves as the topic. Requiring topic here would block users who just want to start.
     if (genre !== "academic") setGenre("academic");
     setExecutionMode("auto");
   }

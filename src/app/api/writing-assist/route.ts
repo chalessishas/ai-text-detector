@@ -228,9 +228,8 @@ async function handleAutoExecute(body: WritingAssistRequest): Promise<NextRespon
   if (!blockType || !["draft", "analyze", "grammar"].includes(blockType)) {
     return NextResponse.json({ error: "Invalid blockType" }, { status: 400 });
   }
-  if (!topic) {
-    return NextResponse.json({ error: "Topic is required" }, { status: 400 });
-  }
+  // Topic can be empty — thesis checkpoint provides the core idea
+  const effectiveTopic = topic || previousOutputs?.thesis?.userInput || "general essay";
 
   const client = getClient();
   const systemPrompt = AUTO_PROMPTS[`${blockType}-auto`];
@@ -241,7 +240,7 @@ async function handleAutoExecute(body: WritingAssistRequest): Promise<NextRespon
   const lang = language === "zh" ? "Chinese" : "English";
 
   if (blockType === "draft") {
-    const userContext = buildDraftContext(genre!, topic, lang, previousOutputs);
+    const userContext = buildDraftContext(genre!, effectiveTopic, lang, previousOutputs);
     const res = await client.chat.completions.create({
       model: MODEL,
       temperature: 0.7,
