@@ -481,30 +481,142 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     # Multi-signal weighted vote
                     min_ppl = ppl_stats.get("min_window_ppl", ppl_val)
+                    ent_std = ppl_stats.get("entropy_std", 2.0)
 
-                    if ppl_val < 8 and top10 > 85:
-                        ppl_score = 95
-                    elif ppl_val < 12 and top10 > 80:
-                        ppl_score = 80
-                    elif ppl_val > 30 and top10 < 70:
-                        ppl_score = 10
-                    elif ppl_val > 20 and top10 < 78:
-                        ppl_score = 20
+                    # PPL scoring — tightened thresholds calibrated for llama3.2:1b
+                    # llama3.2:1b observed ranges: AI ppl 5-9, human casual 15-30+
+                    # Overlap zone: 9-15 (formal/academic text)
+                    if ppl_val < 6 and top10 > 88:
+                        ppl_score = 95  # very likely AI
+                    elif ppl_val < 8 and top10 > 85:
+                        ppl_score = 80  # likely AI
+                    elif ppl_val > 25 and top10 < 75:
+                        ppl_score = 10  # very likely human
+                    elif ppl_val > 18 and top10 < 80:
+                        ppl_score = 20  # likely human
+                    elif ppl_val > 12:
+                        ppl_score = 35  # lean human (overlap zone)
+                    elif ppl_val < 10 and top10 > 82:
+                        ppl_score = 65  # lean AI but not confident
                     else:
-                        ppl_score = 50
+                        ppl_score = 50  # genuinely uncertain
 
-                    if min_ppl < 6:
-                        ppl_score = max(ppl_score, 75)
+                    if min_ppl < 3.5:
+                        ppl_score = max(ppl_score, 80)
 
-                    if lr_ai > 85:
-                        fused = lr_ai * 0.55 + deb_ai * 0.25 + ppl_score * 0.20
-                        signal_source = f"lr_confident(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score})"
-                    elif lr_ai < 15:
-                        fused = lr_ai * 0.55 + deb_ai * 0.25 + ppl_score * 0.20
-                        signal_source = f"lr_confident(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score})"
+                    # Statistical text features (typo-resistant, no model needed)
+                    sentences_list = [s.strip() for s in text.replace('!', '.').replace('?', '.').split('.') if s.strip()]
+                    stat_score = 50  # default neutral
+                    if len(sentences_list) >= 3:
+                        sent_lens = [len(s.split()) for s in sentences_list]
+                        mean_len = sum(sent_lens) / len(sent_lens)
+                        len_var = sum((l - mean_len) ** 2 for l in sent_lens) / len(sent_lens)
+                        len_cv = (len_var ** 0.5) / max(mean_len, 1)  # coefficient of variation
+
+                        # Transition word density
+                        transition_words = {'furthermore', 'moreover', 'additionally', 'consequently',
+                                          'nevertheless', 'however', 'therefore', 'thus', 'hence',
+                                          'accordingly', 'subsequently', 'in conclusion', 'in summary',
+                                          'it is important to note', 'it is worth noting',
+                                          'significantly', 'notably', 'fundamentally'}
+                        words_lower = text.lower()
+                        tw_count = sum(1 for tw in transition_words if tw in words_lower)
+                        tw_density = tw_count / max(len(sentences_list), 1)
+
+                        # Punctuation diversity
+                        punct_types = set()
+                        for ch in text:
+                            if ch in '—–-…();:!?"\'':
+                                punct_types.add(ch)
+                        punct_div = len(punct_types)
+
+                        # Scoring: each feature votes AI or human
+                        # len_cv: AI very uniform (<0.25), human varied (>0.40)
+                        # tw_density: AI loves transitions (>0.30), human rarely (< 0.15)
+                        # punct_div: only high diversity signals human (>4), low is neutral
+                        ai_signals = 0
+                        human_signals = 0
+                        if len_cv < 0.25: ai_signals += 2  # strong AI signal
+                        elif len_cv < 0.35: ai_signals += 1
+                        elif len_cv > 0.45: human_signals += 2  # strong human signal
+                        elif len_cv > 0.38: human_signals += 1
+                        if tw_density > 0.35: ai_signals += 2
+                        elif tw_density > 0.20: ai_signals += 1
+                        elif tw_density < 0.10: human_signals += 1
+                        # Punct: only reward diversity, don't penalize simplicity
+                        if punct_div >= 5: human_signals += 2
+                        elif punct_div >= 3: human_signals += 1
+
+                        total = ai_signals + human_signals
+                        if total == 0:
+                            stat_score = 50
+                        else:
+                            # Map to 0-100 scale: all AI → 90, all human → 10
+                            ratio = ai_signals / total  # 0=all human, 1=all AI
+                            stat_score = int(10 + ratio * 80)  # range: 10-90
+
+                    has_lr = lr_ai != 50  # LR model actually loaded
+
+                    # Consensus override: when 2+ strong signals agree, trust them
+                    strong_ai = sum(1 for s in [deb_ai, ppl_score, stat_score, lr_ai] if s > 80)
+                    strong_human = sum(1 for s in [100-deb_ai, 100-ppl_score, 100-stat_score, 100-lr_ai] if s > 80)
+
+                    if has_lr and strong_ai >= 2 and strong_human == 0:
+                        # Multiple signals strongly agree AI — consensus overrides dissent
+                        scores = [deb_ai, ppl_score, stat_score, lr_ai]
+                        fused = sum(scores) / 4  # simple average when consensus
+                        signal_source = f"consensus_ai(deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},lr={lr_ai:.0f})"
+                    elif has_lr and strong_human >= 2 and strong_ai == 0:
+                        scores = [deb_ai, ppl_score, stat_score, lr_ai]
+                        fused = sum(scores) / 4
+                        signal_source = f"consensus_human(deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},lr={lr_ai:.0f})"
+                    elif has_lr and lr_ai > 85:
+                        # LR confident AI — trust LR but keep DeBERTa voice
+                        fused = lr_ai * 0.35 + deb_ai * 0.30 + ppl_score * 0.20 + stat_score * 0.15
+                        signal_source = f"lr_confident(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
+                    elif has_lr and lr_ai < 15:
+                        # LR confident human — but don't let LR alone override DeBERTa
+                        if deb_ai > 80 and stat_score > 70:
+                            # DeBERTa AND stat both say AI → don't let LR/PPL dominate
+                            fused = lr_ai * 0.15 + deb_ai * 0.35 + ppl_score * 0.15 + stat_score * 0.35
+                            signal_source = f"deb_stat_override(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
+                        elif deb_ai > 80:
+                            fused = lr_ai * 0.25 + deb_ai * 0.25 + ppl_score * 0.30 + stat_score * 0.20
+                            signal_source = f"lr_confident(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
+                        else:
+                            fused = lr_ai * 0.35 + deb_ai * 0.25 + ppl_score * 0.25 + stat_score * 0.15
+                            signal_source = f"lr_confident(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
+                    elif has_lr:
+                        # Default vote — but handle DeBERTa unreliability
+                        if ppl_score >= 70 and lr_ai >= 60 and deb_ai < 20:
+                            # PPL+LR say AI but DeBERTa says human → DeBERTa wrong, demote it
+                            fused = lr_ai * 0.30 + deb_ai * 0.10 + ppl_score * 0.35 + stat_score * 0.25
+                            signal_source = f"ppl_lr_override(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
+                        elif ppl_score <= 30 and lr_ai <= 30 and deb_ai > 80:
+                            # PPL+LR say human but DeBERTa says AI → DeBERTa wrong, demote it
+                            fused = lr_ai * 0.30 + deb_ai * 0.10 + ppl_score * 0.35 + stat_score * 0.25
+                            signal_source = f"ppl_lr_override(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
+                        else:
+                            fused = lr_ai * 0.25 + deb_ai * 0.30 + ppl_score * 0.25 + stat_score * 0.20
+                            signal_source = f"vote(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
                     else:
-                        fused = lr_ai * 0.40 + deb_ai * 0.35 + ppl_score * 0.25
-                        signal_source = f"vote(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score})"
+                        # No LR model: redistribute weight to DeBERTa + PPL + stats
+                        # When DeBERTa is high but other signals disagree, dampen DeBERTa
+                        deb_weight = 0.40
+                        ppl_weight = 0.35
+                        stat_weight = 0.25
+                        if deb_ai > 80 and ppl_score < 50 and stat_score < 50:
+                            # DeBERTa says AI but PPL+stats say human → conflict, trust PPL+stats more
+                            deb_weight = 0.25
+                            ppl_weight = 0.40
+                            stat_weight = 0.35
+                        elif deb_ai > 80 and (ppl_score < 50 or stat_score < 40):
+                            # Partial disagreement → moderate dampening
+                            deb_weight = 0.30
+                            ppl_weight = 0.40
+                            stat_weight = 0.30
+                        fused = deb_ai * deb_weight + ppl_score * ppl_weight + stat_score * stat_weight
+                        signal_source = f"vote_no_lr(deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
 
                     ppl_ai_signal = ppl_score >= 80
                     ppl_human_signal = ppl_score <= 20
@@ -515,9 +627,17 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     threshold = 50
 
+                # Determine prediction with uncertainty zone
+                if fused > threshold + 8:
+                    prediction = "ai"
+                elif fused < threshold - 8:
+                    prediction = "human"
+                else:
+                    prediction = "uncertain"
+
                 result["fused"] = {
                     "ai_score": round(fused, 1),
-                    "prediction": "ai" if fused > threshold else "human",
+                    "prediction": prediction,
                     "confidence": round(max(fused, 100 - fused), 1),
                     "word_count": word_count,
                     "threshold": threshold,

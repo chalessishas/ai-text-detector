@@ -393,7 +393,7 @@ function DetectPanel({
                   {scoreLabel(result.overallScore, result.fused)}
                 </div>
                 <div className="text-xs text-[var(--muted)] mt-1">
-                  {result.fused?.prediction === "ai" ? "AI-generated" : "Human-written"}
+                  {result.fused?.prediction === "ai" ? "AI-generated" : result.fused?.prediction === "uncertain" ? "Insufficient evidence" : "Human-written"}
                   {" · "}{result.wordCount} words
                   {result.fused && result.fused.signal_source !== "blended" && (
                     <span className="ml-1 opacity-60">
