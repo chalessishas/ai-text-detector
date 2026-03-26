@@ -985,6 +985,66 @@ class Handler(BaseHTTPRequestHandler):
                     "ppl_ai_signal": ppl_ai_signal,
                     "ppl_human_signal": ppl_human_signal,
                 }
+
+                # ── Sliding window analysis (segment-level detection) ────
+                # Detects sandwich/hybrid attacks by scoring 3-sentence windows
+                if has_ppl and len(sentences_list) >= 6:
+                    window_size = 3
+                    stride = 2
+                    segment_scores = []
+                    for wi in range(0, len(sentences_list) - window_size + 1, stride):
+                        window_sents = sentences_list[wi:wi + window_size]
+                        window_text = ". ".join(window_sents) + "."
+                        # Quick per-window stat score
+                        w_words = window_text.lower().split()
+                        w_wc = len(w_words)
+                        if w_wc < 10:
+                            segment_scores.append({"start": wi, "end": wi + window_size, "ai_score": 50})
+                            continue
+                        # Sentence length CV for window
+                        w_lens = [len(s.split()) for s in window_sents]
+                        w_mean = sum(w_lens) / len(w_lens)
+                        w_var = sum((l - w_mean) ** 2 for l in w_lens) / len(w_lens)
+                        w_cv = (w_var ** 0.5) / max(w_mean, 1)
+                        # Transition words in window
+                        w_tw = sum(1 for tw in transition_words if tw in window_text.lower())
+                        w_tw_d = w_tw / len(window_sents)
+                        # Contractions in window
+                        w_contr = sum(window_text.lower().count(c) for c in ["n't", "'m", "'re", "'ve", "'ll", "'d"])
+                        w_contr_r = w_contr / len(window_sents)
+                        # Simple window score
+                        w_ai = 0
+                        w_hu = 0
+                        if w_cv < 0.25: w_ai += 2
+                        elif w_cv > 0.45: w_hu += 2
+                        if w_tw_d > 0.3: w_ai += 2
+                        elif w_tw_d < 0.1: w_hu += 1
+                        if w_contr_r > 0.2: w_hu += 2
+                        elif w_contr_r == 0: w_ai += 1
+                        w_total = w_ai + w_hu
+                        if w_total == 0:
+                            w_score = 50
+                        else:
+                            w_score = int(10 + (w_ai / w_total) * 80)
+                        # Blend with DeBERTa if available (DeBERTa sees full text, not window)
+                        # Just use stat-based score for windows
+                        segment_scores.append({
+                            "start": wi,
+                            "end": wi + window_size,
+                            "sentences": [s[:60] + "..." if len(s) > 60 else s for s in window_sents],
+                            "ai_score": w_score,
+                            "features": {"cv": round(w_cv, 3), "tw": round(w_tw_d, 2), "contr": round(w_contr_r, 2)},
+                        })
+                    # Flag segments with high AI score
+                    max_seg = max((s["ai_score"] for s in segment_scores), default=50)
+                    min_seg = min((s["ai_score"] for s in segment_scores), default=50)
+                    result["segment_analysis"] = {
+                        "segments": segment_scores,
+                        "max_ai_score": max_seg,
+                        "min_ai_score": min_seg,
+                        "variance": max_seg - min_seg,
+                        "sandwich_risk": max_seg - min_seg > 30,
+                    }
             except Exception as e:
                 result = {"error": str(e)}
 
