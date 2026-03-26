@@ -507,7 +507,7 @@ def _extract_linguistic_features(text):
     }
 
 
-def compute_perplexity_score(tokens):
+def compute_perplexity_score(tokens, text=""):
     """Compute aggregate stats from token data, run LR classifier for AI probability."""
     if not tokens:
         return None
@@ -580,8 +580,8 @@ def compute_perplexity_score(tokens):
             result["lr_prediction"] = "ai" if prob[1] > 0.5 else "human"
             result["lr_version"] = "v3"
             result["lr_linguistic"] = ling
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"LR v3 error: {e}", file=sys.stderr)
     elif os.path.exists(lr_v2_path):
         try:
             import pickle
@@ -747,7 +747,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception as e:
                         print(f"Binoculars error: {e}", file=sys.stderr)
                 # Aggregate perplexity stats + LR AI probability
-                result["perplexity_stats"] = compute_perplexity_score(result.get("tokens", []))
+                result["perplexity_stats"] = compute_perplexity_score(result.get("tokens", []), analysis_text)
                 # DeBERTa binary classification
                 clf_tok = self.server.classifier_tokenizer
                 clf_mod = self.server.classifier_model
