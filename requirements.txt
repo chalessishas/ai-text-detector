@@ -1,0 +1,21 @@
+# AI Text X-Ray — Python dependencies
+# Install: pip install -r requirements.txt
+# Requires Python 3.11 (FAISS compatibility)
+
+# Detection server (perplexity.py)
+numpy
+torch
+transformers
+scipy
+llama-cpp-python==0.3.16
+
+# LR model training (train_lr_local.py)
+scikit-learn
+
+# Humanizer server (humanizer.py)
+faiss-cpu
+spacy
+sentence-transformers
+
+# Dataset generation (generate_dataset.py) — optional
+# openai
