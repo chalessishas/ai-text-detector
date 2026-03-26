@@ -453,6 +453,55 @@ def compute_min_window_ppl(logprobs, window=32):
     return round(min_ppl, 2)
 
 
+def _extract_linguistic_features(text):
+    """8 spaCy linguistic features for LR v3 (contraction, pronoun, tense, etc)."""
+    import re
+    _CONTRACTION_RE = re.compile(
+        r"\b(I'm|I've|I'll|I'd|don't|doesn't|didn't|won't|can't|couldn't|"
+        r"wouldn't|shouldn't|haven't|hasn't|isn't|aren't|wasn't|weren't|"
+        r"it's|that's|there's|they're|we're|you're|he's|she's|let's|"
+        r"who's|what's|here's)\b", re.IGNORECASE
+    )
+    _FP_RE = re.compile(r"\b(I|me|my|mine|myself|we|us|our|ours|ourselves)\b")
+
+    try:
+        import spacy
+        nlp = spacy.load("en_core_web_sm", disable=["ner", "textcat"])
+    except Exception:
+        return {k: 0.0 for k in [
+            "contraction_rate", "fp_density", "sent_len_cv", "question_rate",
+            "past_ratio", "adverb_density", "conj_start_rate", "punct_diversity",
+        ]}
+
+    doc = nlp(text[:5000])
+    words = [t for t in doc if not t.is_punct and not t.is_space]
+    n_words = max(len(words), 1)
+    sentences = list(doc.sents)
+    n_sents = max(len(sentences), 1)
+
+    contractions = len(_CONTRACTION_RE.findall(text))
+    first_person = len(_FP_RE.findall(text))
+    sent_lens = [len([t for t in s if not t.is_punct]) for s in sentences]
+    sent_len_cv = float(np.std(sent_lens) / max(np.mean(sent_lens), 1)) if sent_lens else 0
+    questions = sum(1 for s in sentences if str(s).strip().endswith("?"))
+    past_tense = sum(1 for t in words if t.tag_ in ("VBD", "VBN"))
+    adverbs = sum(1 for t in words if t.pos_ == "ADV")
+    conj_starts = sum(1 for s in sentences
+                      if len(list(s)) > 0 and list(s)[0].pos_ in ("CCONJ", "SCONJ"))
+    punct_types = set(t.text for t in doc if t.is_punct)
+
+    return {
+        "contraction_rate": contractions / n_words,
+        "fp_density": first_person / n_words,
+        "sent_len_cv": sent_len_cv,
+        "question_rate": questions / n_sents,
+        "past_ratio": past_tense / max(sum(1 for t in words if t.pos_ == "VERB"), 1),
+        "adverb_density": adverbs / n_words,
+        "conj_start_rate": conj_starts / n_sents,
+        "punct_diversity": len(punct_types) / max(n_sents, 1),
+    }
+
+
 def compute_perplexity_score(tokens):
     """Compute aggregate stats from token data, run LR classifier for AI probability."""
     if not tokens:
@@ -488,29 +537,53 @@ def compute_perplexity_score(tokens):
         "specdetect_energy": spec_energy,
     }
 
-    # LR classifier: prefer v2 (16 features + scaler) over v1 (5 features)
+    # LR classifier: prefer v3 (24 features) > v2 (16) > v1 (5)
     # pickle is used here for sklearn model files we generated ourselves
     models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
+    lr_v3_path = os.path.join(models_dir, "perplexity_lr_v3.pkl")
     lr_v2_path = os.path.join(models_dir, "perplexity_lr_v2.pkl")
     lr_v1_path = os.path.join(models_dir, "perplexity_lr.pkl")
 
-    if os.path.exists(lr_v2_path):
+    # Base 16 features (shared by v2 and v3)
+    base_16 = [
+        log_ppl, top10, mean_ent, top1, ent_std,
+        diveye.get("surprisal_mean", 0), diveye.get("surprisal_std", 0),
+        diveye.get("surprisal_var", 0), diveye.get("surprisal_skew", 0),
+        diveye.get("surprisal_kurtosis", 0),
+        diveye.get("diff1_mean", 0), diveye.get("diff1_std", 0),
+        diveye.get("diff2_var", 0), diveye.get("diff2_entropy", 0),
+        diveye.get("diff2_autocorr", 0),
+        spec_energy,
+    ]
+
+    if os.path.exists(lr_v3_path):
+        try:
+            import pickle
+            with open(lr_v3_path, "rb") as f:
+                lr_data = pickle.load(f)
+            lr_pipeline = lr_data["model"]
+            # v3: 16 base + 8 linguistic features
+            ling = _extract_linguistic_features(text)
+            features_v3 = np.array([base_16 + [
+                ling["contraction_rate"], ling["fp_density"],
+                ling["sent_len_cv"], ling["question_rate"],
+                ling["past_ratio"], ling["adverb_density"],
+                ling["conj_start_rate"], ling["punct_diversity"],
+            ]])
+            prob = lr_pipeline.predict_proba(features_v3)[0]
+            result["lr_ai_probability"] = round(float(prob[1]) * 100, 1)
+            result["lr_prediction"] = "ai" if prob[1] > 0.5 else "human"
+            result["lr_version"] = "v3"
+            result["lr_linguistic"] = ling
+        except Exception:
+            pass
+    elif os.path.exists(lr_v2_path):
         try:
             import pickle
             with open(lr_v2_path, "rb") as f:
                 lr_data = pickle.load(f)
-            lr_pipeline = lr_data["model"]  # Pipeline(StandardScaler + LR)
-            # Build 16-feature vector: 5 basic + 10 DivEye + 1 SpecDetect
-            features_v2 = np.array([[
-                log_ppl, top10, mean_ent, top1, ent_std,
-                diveye.get("surprisal_mean", 0), diveye.get("surprisal_std", 0),
-                diveye.get("surprisal_var", 0), diveye.get("surprisal_skew", 0),
-                diveye.get("surprisal_kurtosis", 0),
-                diveye.get("diff1_mean", 0), diveye.get("diff1_std", 0),
-                diveye.get("diff2_var", 0), diveye.get("diff2_entropy", 0),
-                diveye.get("diff2_autocorr", 0),
-                spec_energy,
-            ]])
+            lr_pipeline = lr_data["model"]
+            features_v2 = np.array([base_16])
             prob = lr_pipeline.predict_proba(features_v2)[0]
             result["lr_ai_probability"] = round(float(prob[1]) * 100, 1)
             result["lr_prediction"] = "ai" if prob[1] > 0.5 else "human"
