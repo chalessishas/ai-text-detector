@@ -716,7 +716,17 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     bino_ai = 50  # neutral if unavailable
 
-                word_count = len(analysis_text.split())
+                # Word count — handle CJK text (no spaces between words)
+                raw_words = analysis_text.split()
+                word_count = len(raw_words)
+                # If mostly CJK characters, estimate word count from char count
+                # (average CJK word ≈ 2 characters)
+                if word_count < 10 and len(analysis_text) > 50:
+                    cjk_chars = sum(1 for ch in analysis_text if '\u4e00' <= ch <= '\u9fff'
+                                    or '\u3040' <= ch <= '\u30ff'  # Japanese
+                                    or '\uac00' <= ch <= '\ud7af')  # Korean
+                    if cjk_chars > len(analysis_text) * 0.3:
+                        word_count = cjk_chars // 2  # rough CJK word estimate
 
                 # DeBERTa-only fast path: no perplexity model → use raw DeBERTa score
                 clf_data = result.get("classification", {})
