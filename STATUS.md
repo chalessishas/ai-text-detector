@@ -1,10 +1,38 @@
 # AI Text X-Ray — 项目状态
 
-> 最后更新: 2026-03-25 16:05
+> 最后更新: 2026-03-26 01:10
 
 ---
 
 ## 最近更新（新的在上面）
+
+### [2026-03-26 01:10] — 预处理防御 + 对抗扩展 + 滑动窗口 + ELECTRA 准备
+
+- **做了什么**（16:05 - 01:10，约 9 小时自治循环）：
+  1. **预处理防御层**：emoji 清除、对话标签剥离、markdown 清除、短句合并、Unicode 同形字映射（Greek/Cyrillic → Latin）
+  2. **文体特征扩展**：3→10 维（+hapax ratio, Yule's K, 功能词比率, 缩写率, 句首多样性, 词长分布）
+  3. **ELECTRA 训练 notebook**：`train_electra_colab.ipynb`，自动下载数据集，修复 classifier head 命名
+  4. **自动化测试套件**：`tests/test_detector.py`，24 个用例（21 pass + 3 xfail）
+  5. **对抗数据生成器扩展**：9→14 种攻击（+back_translation, human_sandwich, style_prompt, data_injection, lexical_sub）
+  6. **Binoculars 实现**：llama3.2:1b + 3b，但发现模型对无区分度，暂禁用
+  7. **滑动窗口分析**：3 句窗口 + stride 2，成功检测 sandwich 攻击（全文 57.8 但窗口暴露 AI 段落 90）
+  8. **3 份研究报告**：docs/research/2026-03-25-{14,16,18}.md
+  9. **对抗策略分析**：子 Agent 设计 8 种新攻击，全部 5 种新实现成功绕过检测器
+
+- **Commits**：224fb06 → 79f2272（~10 个 commits，全部 pushed）
+
+- **当前检测能力**：
+  - 假阳性率：**0%**（所有人类文本正确判定）
+  - 标准 AI 检出：75-90 分
+  - 已防御：口语注入、第一人称、列举体、homoglyph、markdown、对话体（部分）
+  - 不可防御：typos、Quillbot、text-message 风格、对话体完全包装
+  - 新增：sandwich 攻击检测（滑动窗口暴露混合文本中的 AI 段落）
+
+- **下一步**：
+  1. **ELECTRA 训练**（Colab A100，notebook 已就绪，待主人运行）
+  2. ELECTRA 模型集成替换 DeBERTa
+  3. 用 14 种对抗样本重训 ELECTRA
+  4. 滑动窗口结果集成到前端 UI
 
 ### [2026-03-25 16:05] — 四路投票系统 + qwen3:4b PPL 升级
 
