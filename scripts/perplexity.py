@@ -758,54 +758,131 @@ class Handler(BaseHTTPRequestHandler):
                         ppl_score = max(ppl_score, 80)
 
                     # Statistical text features (typo-resistant, no model needed)
+                    # Extended stylometric analysis inspired by StyloAI (31 features)
                     sentences_list = [s.strip() for s in analysis_text.replace('!', '.').replace('?', '.').split('.') if s.strip()]
                     stat_score = 50  # default neutral
                     if len(sentences_list) >= 3:
+                        words_all = analysis_text.lower().split()
+                        word_count_stat = len(words_all)
+
+                        # === Feature Group 1: Sentence-level ===
                         sent_lens = [len(s.split()) for s in sentences_list]
                         mean_len = sum(sent_lens) / len(sent_lens)
                         len_var = sum((l - mean_len) ** 2 for l in sent_lens) / len(sent_lens)
-                        len_cv = (len_var ** 0.5) / max(mean_len, 1)  # coefficient of variation
+                        len_cv = (len_var ** 0.5) / max(mean_len, 1)
 
-                        # Transition word density
+                        # === Feature Group 2: Vocabulary richness (typo-resistant) ===
+                        # These measure lexical diversity — typos create NEW unique words,
+                        # so they actually INCREASE these metrics (making text look MORE human)
+                        from collections import Counter
+                        word_freq = Counter(words_all)
+                        unique_words = len(word_freq)
+                        ttr = unique_words / max(word_count_stat, 1)  # type-token ratio
+                        hapax = sum(1 for w, c in word_freq.items() if c == 1)  # words appearing once
+                        hapax_ratio = hapax / max(unique_words, 1)
+                        # Yule's K — vocabulary richness measure, robust to text length
+                        freq_spectrum = Counter(word_freq.values())
+                        m1 = sum(word_freq.values())
+                        m2 = sum(i * i * freq_spectrum[i] for i in freq_spectrum)
+                        yules_k = 10000 * (m2 - m1) / max(m1 * m1, 1) if m1 > 0 else 0
+
+                        # === Feature Group 3: Function word analysis (very hard to fake) ===
+                        # Function words are structure words — their distribution is deeply ingrained
+                        # in writing style and very hard to consciously manipulate
+                        function_words = {
+                            'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+                            'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall',
+                            'should', 'may', 'might', 'can', 'could', 'must', 'of', 'in', 'to',
+                            'for', 'with', 'on', 'at', 'by', 'from', 'as', 'into', 'through',
+                            'during', 'before', 'after', 'above', 'below', 'between', 'under',
+                            'that', 'which', 'who', 'whom', 'this', 'these', 'those', 'it',
+                            'its', 'and', 'but', 'or', 'nor', 'not', 'so', 'yet', 'both',
+                            'either', 'neither', 'if', 'then', 'else', 'when', 'while', 'although',
+                        }
+                        fw_count = sum(1 for w in words_all if w in function_words)
+                        fw_ratio = fw_count / max(word_count_stat, 1)
+
+                        # === Feature Group 4: Transition/discourse markers (AI signature) ===
                         transition_words = {'furthermore', 'moreover', 'additionally', 'consequently',
                                           'nevertheless', 'however', 'therefore', 'thus', 'hence',
                                           'accordingly', 'subsequently', 'in conclusion', 'in summary',
                                           'it is important to note', 'it is worth noting',
-                                          'significantly', 'notably', 'fundamentally'}
+                                          'significantly', 'notably', 'fundamentally', 'specifically',
+                                          'particularly', 'essentially', 'ultimately', 'increasingly'}
                         words_lower = analysis_text.lower()
                         tw_count = sum(1 for tw in transition_words if tw in words_lower)
                         tw_density = tw_count / max(len(sentences_list), 1)
 
-                        # Punctuation diversity
+                        # === Feature Group 5: Punctuation & formatting ===
                         punct_types = set()
                         for ch in analysis_text:
                             if ch in '—–-…();:!?"\'':
                                 punct_types.add(ch)
                         punct_div = len(punct_types)
+                        # Contraction usage (AI rarely uses contractions)
+                        contractions = ["n't", "'m", "'re", "'ve", "'ll", "'d", "'s"]
+                        contraction_count = sum(analysis_text.lower().count(c) for c in contractions)
+                        contraction_rate = contraction_count / max(len(sentences_list), 1)
 
-                        # Scoring: each feature votes AI or human
-                        # len_cv: AI very uniform (<0.25), human varied (>0.40)
-                        # tw_density: AI loves transitions (>0.30), human rarely (< 0.15)
-                        # punct_div: only high diversity signals human (>4), low is neutral
+                        # === Feature Group 6: Sentence starters diversity ===
+                        # AI tends to start sentences with similar patterns
+                        starters = [s.split()[0].lower() if s.split() else '' for s in sentences_list]
+                        unique_starters = len(set(starters))
+                        starter_diversity = unique_starters / max(len(starters), 1)
+
+                        # === Feature Group 7: Average word length distribution ===
+                        avg_word_len = sum(len(w) for w in words_all) / max(word_count_stat, 1)
+                        # AI tends toward medium-length words; humans use more short + long extremes
+                        short_words = sum(1 for w in words_all if len(w) <= 3) / max(word_count_stat, 1)
+                        long_words = sum(1 for w in words_all if len(w) >= 8) / max(word_count_stat, 1)
+
+                        # === Scoring: weighted signal accumulation ===
                         ai_signals = 0
                         human_signals = 0
-                        if len_cv < 0.25: ai_signals += 2  # strong AI signal
+
+                        # Sentence length uniformity
+                        if len_cv < 0.25: ai_signals += 2
                         elif len_cv < 0.35: ai_signals += 1
-                        elif len_cv > 0.45: human_signals += 2  # strong human signal
+                        elif len_cv > 0.45: human_signals += 2
                         elif len_cv > 0.38: human_signals += 1
+
+                        # Transition word density (AI uses many)
                         if tw_density > 0.35: ai_signals += 2
                         elif tw_density > 0.20: ai_signals += 1
                         elif tw_density < 0.10: human_signals += 1
-                        # Punct: only reward diversity, don't penalize simplicity
+
+                        # Punctuation diversity (high = human)
                         if punct_div >= 5: human_signals += 2
                         elif punct_div >= 3: human_signals += 1
+
+                        # Vocabulary richness — AI has lower hapax ratio & Yule's K
+                        if hapax_ratio < 0.55: ai_signals += 1  # AI reuses words more
+                        elif hapax_ratio > 0.70: human_signals += 1
+                        if yules_k < 80: ai_signals += 1  # AI: low vocabulary richness
+                        elif yules_k > 140: human_signals += 1
+
+                        # Function word ratio — AI tends toward 0.42-0.48, human more variable
+                        if 0.42 <= fw_ratio <= 0.48: ai_signals += 1
+                        elif fw_ratio < 0.38 or fw_ratio > 0.52: human_signals += 1
+
+                        # Contractions — AI almost never uses them
+                        if contraction_rate > 0.3: human_signals += 2  # strong human signal
+                        elif contraction_rate > 0.1: human_signals += 1
+                        elif contraction_rate == 0 and word_count_stat > 50: ai_signals += 1
+
+                        # Sentence starter diversity
+                        if starter_diversity < 0.5: ai_signals += 1  # AI repetitive starts
+                        elif starter_diversity > 0.8: human_signals += 1
+
+                        # Short word ratio — humans use more informal short words
+                        if short_words > 0.45: human_signals += 1
+                        elif short_words < 0.30: ai_signals += 1
 
                         total = ai_signals + human_signals
                         if total == 0:
                             stat_score = 50
                         else:
-                            # Map to 0-100 scale: all AI → 90, all human → 10
-                            ratio = ai_signals / total  # 0=all human, 1=all AI
+                            ratio = ai_signals / total
                             stat_score = int(10 + ratio * 80)  # range: 10-90
 
                     has_lr = lr_ai != 50  # LR model actually loaded
