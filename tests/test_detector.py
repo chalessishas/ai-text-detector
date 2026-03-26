@@ -301,3 +301,74 @@ class TestAPIHealth:
         bino = result["binoculars"]
         assert "score" in bino
         assert "log_ppl" in bino
+
+
+# ═══════════════════════════════════════════════════════════════
+# SANDWICH / HYBRID DETECTION (sliding window)
+# ═══════════════════════════════════════════════════════════════
+
+class TestSandwichDetection:
+    """Test sliding window segment analysis for mixed AI/human content."""
+
+    def test_sandwich_detected(self):
+        """Human intro + AI body + human conclusion should trigger sandwich_risk."""
+        result = analyze(
+            "So I've been thinking about this topic a lot lately, and honestly I "
+            "wasn't sure where to start. But here's what I came up with after "
+            "doing some reading. I remember talking about it with my friend last "
+            "week and she had some interesting perspectives too. "
+            "The rapid advancement of artificial intelligence has fundamentally "
+            "transformed how we approach complex problem-solving in modern society. "
+            "Machine learning algorithms now process vast amounts of data with "
+            "unprecedented efficiency, enabling breakthroughs in healthcare, "
+            "finance, and scientific research. Furthermore, the integration of "
+            "deep learning models has revolutionized natural language processing. "
+            "Anyway that's basically what I think. I'm sure there's more to it "
+            "but this is where I'm at right now. Would love to hear what other "
+            "people think about this stuff."
+        )
+        seg = result.get("segment_analysis")
+        assert seg is not None, "segment_analysis missing from response"
+        assert seg["sandwich_risk"] is True, (
+            f"sandwich_risk should be True, got False "
+            f"(max={seg['max_ai_score']}, min={seg['min_ai_score']}, var={seg['variance']})"
+        )
+        assert seg["variance"] > 30, f"Variance too low: {seg['variance']}"
+
+    def test_pure_ai_no_sandwich(self):
+        """Pure AI text should NOT trigger sandwich_risk (uniform segments)."""
+        result = analyze(
+            "The rapid advancement of artificial intelligence has fundamentally "
+            "transformed how we approach complex problem-solving in modern society. "
+            "Machine learning algorithms now process vast amounts of data with "
+            "unprecedented efficiency, enabling breakthroughs in healthcare. "
+            "Furthermore, the integration of deep learning models has revolutionized "
+            "natural language processing, computer vision, and autonomous systems. "
+            "The global economy has undergone a remarkable transformation driven "
+            "by technological innovation and globalization. These forces have created "
+            "unprecedented opportunities and significant challenges for nations."
+        )
+        seg = result.get("segment_analysis")
+        if seg:  # May not be present for short texts
+            assert seg["sandwich_risk"] is False, (
+                f"Pure AI should not trigger sandwich_risk "
+                f"(max={seg['max_ai_score']}, min={seg['min_ai_score']})"
+            )
+
+    def test_pure_human_no_sandwich(self):
+        """Pure human text should NOT trigger sandwich_risk."""
+        result = analyze(
+            "I honestly had no idea what I was doing when I first tried to bake "
+            "bread. The dough stuck to everything, my kitchen looked like a flour "
+            "bomb went off, and the end result was basically a brick. But you know "
+            "what? I kept trying, and eventually something clicked. Now I make a "
+            "decent loaf every Sunday. My neighbor even asked for my recipe last "
+            "week which felt pretty cool. I told her the secret is just patience "
+            "and not being afraid to mess up about twenty times first."
+        )
+        seg = result.get("segment_analysis")
+        if seg:
+            assert seg["sandwich_risk"] is False, (
+                f"Pure human should not trigger sandwich_risk "
+                f"(max={seg['max_ai_score']}, min={seg['min_ai_score']})"
+            )
