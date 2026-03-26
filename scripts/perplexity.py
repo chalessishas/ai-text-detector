@@ -453,27 +453,32 @@ def compute_min_window_ppl(logprobs, window=32):
     return round(min_ppl, 2)
 
 
+_CONTRACTION_RE = re.compile(
+    r"\b(I'm|I've|I'll|I'd|don't|doesn't|didn't|won't|can't|couldn't|"
+    r"wouldn't|shouldn't|haven't|hasn't|isn't|aren't|wasn't|weren't|"
+    r"it's|that's|there's|they're|we're|you're|he's|she's|let's|"
+    r"who's|what's|here's)\b", re.IGNORECASE
+)
+_FP_RE = re.compile(r"\b(I|me|my|mine|myself|we|us|our|ours|ourselves)\b")
+_LING_NLP = None  # lazy-loaded spaCy model (cached after first call)
+
+_LING_ZERO = {k: 0.0 for k in [
+    "contraction_rate", "fp_density", "sent_len_cv", "question_rate",
+    "past_ratio", "adverb_density", "conj_start_rate", "punct_diversity",
+]}
+
+
 def _extract_linguistic_features(text):
     """8 spaCy linguistic features for LR v3 (contraction, pronoun, tense, etc)."""
-    import re
-    _CONTRACTION_RE = re.compile(
-        r"\b(I'm|I've|I'll|I'd|don't|doesn't|didn't|won't|can't|couldn't|"
-        r"wouldn't|shouldn't|haven't|hasn't|isn't|aren't|wasn't|weren't|"
-        r"it's|that's|there's|they're|we're|you're|he's|she's|let's|"
-        r"who's|what's|here's)\b", re.IGNORECASE
-    )
-    _FP_RE = re.compile(r"\b(I|me|my|mine|myself|we|us|our|ours|ourselves)\b")
+    global _LING_NLP
+    if _LING_NLP is None:
+        try:
+            import spacy
+            _LING_NLP = spacy.load("en_core_web_sm", disable=["ner", "textcat"])
+        except Exception:
+            return dict(_LING_ZERO)
 
-    try:
-        import spacy
-        nlp = spacy.load("en_core_web_sm", disable=["ner", "textcat"])
-    except Exception:
-        return {k: 0.0 for k in [
-            "contraction_rate", "fp_density", "sent_len_cv", "question_rate",
-            "past_ratio", "adverb_density", "conj_start_rate", "punct_diversity",
-        ]}
-
-    doc = nlp(text[:5000])
+    doc = _LING_NLP(text[:5000])
     words = [t for t in doc if not t.is_punct and not t.is_space]
     n_words = max(len(words), 1)
     sentences = list(doc.sents)
