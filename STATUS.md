@@ -1,6 +1,30 @@
 # AI Text X-Ray — 项目状态
 
-> 最后更新: 2026-03-26 01:10
+> 最后更新: 2026-03-26 02:40
+
+---
+
+## 最近更新（新的在上面）
+
+### [2026-03-26 02:40] — 训练循环：数据修复 + LR 重训 + RunPod DeBERTa
+
+- **做了什么**（01:30 - 02:40，约 1.2 小时）：
+  1. **GitHub pull**: 6 个新 commit（sliding window, CJK fix, adversarial 14 types）
+  2. **发现 dataset_v3 不平衡**: human 32K vs AI 17K，导致模型偏向 human
+  3. **创建 dataset_v4.jsonl**: 69,176 samples, 17,294 × 4 classes（完美平衡）
+  4. **LR v2 重训启动**: 5000 samples (2.5x 旧), --recompute, MLX qwen3.5:4b
+  5. **本地 DeBERTa MPS 尝试**: OOM at 3%（18GB 不够），放弃
+  6. **RunPod 4090 部署**: $0.34/hr, torch 2.6.0+cu124, DeBERTa 全量 69K 样本重训
+  7. **69K adversarial 样本生成**: 14 种攻击类型，用于后续训练/评估
+  8. **benchmark_models.py**: 离线评估脚本（LR + DeBERTa 对比）
+
+- **训练结果**:
+  - LR v2: **79.8% accuracy** (5000 balanced samples, +11.2% vs old on same test)
+  - DeBERTa v4: **97.6% 4-class, 99.7% binary** (69K balanced, RunPod 4090, 42.7 min)
+  - RunPod cost: **$0.78** (pod terminated)
+
+- **模型状态**: LR v2 + DeBERTa v4 已集成到 pipeline
+- **新增文件**: dataset_v4.jsonl, dataset_adversarial_v4.jsonl, 4 scripts, models/detector_v4/
 
 ---
 

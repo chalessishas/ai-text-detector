@@ -32,7 +32,7 @@ from sklearn.pipeline import Pipeline
 MLX_MODEL_ID = "mlx-community/Qwen3.5-4B-4bit"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.join(SCRIPT_DIR, "..")
-DATASET_PATH = os.path.join(PROJECT_DIR, "dataset_v3.jsonl")
+DATASET_PATH = os.path.join(PROJECT_DIR, "dataset_v4.jsonl")
 OLD_MODEL_PATH = os.path.join(PROJECT_DIR, "models", "perplexity_lr.pkl")
 NEW_MODEL_PATH = os.path.join(PROJECT_DIR, "models", "perplexity_lr_v2.pkl")
 
@@ -236,7 +236,7 @@ def main():
         print(f"  Loaded in {time.time() - t0:.1f}s")
 
         # Load samples
-        print(f"\nLoading balanced samples from dataset_v3.jsonl (target: {N_SAMPLE})...")
+        print(f"\nLoading balanced samples from {DATASET_PATH} (target: {N_SAMPLE})...")
         samples = load_balanced_samples(DATASET_PATH, N_SAMPLE)
 
         # Compute features
