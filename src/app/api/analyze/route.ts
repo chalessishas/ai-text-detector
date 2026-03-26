@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
       featureScores: hasTokenData ? featureScores : [],
       sentenceScores,
       wordCount,
-      scoringEligible: classification ? true : wordCount >= 300,
+      scoringEligible: classification ? wordCount >= 50 : wordCount >= 300,
       classification,
       fused,
       hasTokenData,

@@ -12,10 +12,10 @@ echo "Gateway port: $GATEWAY_PORT"
 
 # ── Auto-download model data if missing ──
 
-# v1: Original DeBERTa (72% red team but actually detects AI)
-# v3 FAILED: LR scheduler bug → model never trained → 33% (all-human predictions)
+# v1: Original DeBERTa (72% red team, best available)
+# v3 trained on 83K cross-domain data: 98.7% eval but only 50% red team (worse than v1)
 MODEL_FILE="detector.tar.gz"
-MODEL_MARKER="$DATA_DIR/models/detector/.v1_stable"
+MODEL_MARKER="$DATA_DIR/models/detector/.v1_restored"
 if [ ! -f "$MODEL_MARKER" ]; then
     echo "Downloading DeBERTa v1 model..."
     rm -rf "$DATA_DIR/models/detector"

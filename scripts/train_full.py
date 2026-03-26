@@ -113,6 +113,10 @@ def main():
     # Model - from base checkpoint (NOT from fine-tuned)
     model = AutoModelForSequenceClassification.from_pretrained(BASE_MODEL, num_labels=num_labels)
     model.float()  # DeBERTa fp16 explodes on MPS
+    # Set config metadata for correct loading later
+    model.config.num_labels = num_labels
+    model.config.id2label = {i: n for i, n in enumerate(label_names)}
+    model.config.label2id = {n: i for i, n in enumerate(label_names)}
 
     # Auto-detect batch size
     if args.batch == 0:
@@ -151,6 +155,7 @@ def main():
         warmup_ratio=0.1,
         report_to="none",
         save_total_limit=2,
+        save_safetensors=False,  # CRITICAL: DeBERTa-v3 legacy=True breaks safetensors save
     )
 
     trainer = Trainer(
@@ -172,10 +177,17 @@ def main():
     results = trainer.evaluate()
     print(f"Final eval accuracy: {results['eval_accuracy']:.4f}")
 
-    # Save
+    # Save — use torch.save as backup (safetensors has DeBERTa-v3 legacy bug)
     trainer.save_model(args.output)
     tokenizer.save_pretrained(args.output)
+    # Also save via torch.save to guarantee classifier weights are preserved
+    torch.save(model.state_dict(), os.path.join(args.output, "pytorch_model_manual.bin"))
+    # Verify classifier weights were saved correctly
+    cb = model.classifier.bias.data.tolist()
     print(f"Model saved to {args.output}")
+    print(f"  classifier.bias = {cb} (should be non-zero if trained)")
+    if all(abs(b) < 0.001 for b in cb):
+        print("  WARNING: classifier bias near zero — possible save corruption!")
 
     # Detailed report
     preds = trainer.predict(eval_ds)

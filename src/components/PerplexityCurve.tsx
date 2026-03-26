@@ -17,10 +17,22 @@ interface Props {
 }
 
 export default function PerplexityCurve({ tokens }: Props) {
+  // Use geometric mean (matches the overall perplexity in status bar)
   const avgPerplexity =
     tokens.length > 0
-      ? tokens.reduce((sum, t) => sum + t.perplexity, 0) / tokens.length
+      ? Math.exp(
+          tokens.reduce((sum, t) => sum + Math.log(Math.max(t.perplexity, 0.01)), 0) /
+            tokens.length
+        )
       : 0;
+  // Clip outliers for readable Y-axis (cap at 95th percentile × 2)
+  const sortedPpl = [...tokens].map(t => t.perplexity).sort((a, b) => a - b);
+  const p95 = sortedPpl[Math.floor(sortedPpl.length * 0.95)] || 100;
+  const yMax = Math.min(p95 * 2, 500);
+  const clippedTokens = tokens.map(t => ({
+    ...t,
+    perplexity: Math.min(t.perplexity, yMax),
+  }));
 
   return (
     <div className="bg-white rounded-2xl p-6 border border-[var(--card-border)] shadow-sm">
@@ -37,7 +49,7 @@ export default function PerplexityCurve({ tokens }: Props) {
       </p>
       <div style={{ width: "100%", height: 220 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={tokens}>
+          <LineChart data={clippedTokens}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e8e2d9" />
             <XAxis
               dataKey="position"

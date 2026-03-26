@@ -364,7 +364,7 @@ function DetectPanel({
         <div className="rounded-lg px-3 py-2 bg-amber-50 border border-amber-200">
           <span className="text-[10px] font-semibold text-amber-700">Beta</span>
           <span className="text-[10px] text-amber-600 ml-1.5">
-            Best on English essays. May misclassify creative writing, legal, or technical text.
+            Best on English essays (200+ words). May misclassify formal academic writing, business emails, legal, or technical text. Short texts (&lt;50 words) are too brief for reliable detection.
           </span>
         </div>
 

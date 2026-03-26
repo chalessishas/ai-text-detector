@@ -6,6 +6,7 @@ import { explainSentenceScore } from "@/lib/analysis";
 
 interface Props {
   sentenceScores: SentenceScoreData[];
+  overallAiScore?: number;
 }
 
 function getHighlightColor(score: number): string {
@@ -66,8 +67,12 @@ export default function SentenceAnalysis({ sentenceScores }: Props) {
           Sentence-Level Analysis
         </h3>
         <p className="text-xs text-[var(--muted)] mb-4">
-          {aiCount + mixedCount}/{sentenceScores.length} sentences likely AI generated.
-          Click a sentence to see why.
+          {aiCount > 0
+            ? `${aiCount}/${sentenceScores.length} sentences show strong AI patterns.`
+            : mixedCount > 0
+              ? `${mixedCount}/${sentenceScores.length} sentences show some AI-like patterns.`
+              : `All ${sentenceScores.length} sentences appear human-written.`}
+          {" "}Click a sentence to see details.
         </p>
 
         <div className="flex gap-4 text-xs mb-4">

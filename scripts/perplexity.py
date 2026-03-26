@@ -955,7 +955,12 @@ class Handler(BaseHTTPRequestHandler):
 
                     ppl_ai_signal = ppl_score >= 80
                     ppl_human_signal = ppl_score <= 20
-                if word_count < 150:
+                if word_count < 50:
+                    # Too short for reliable detection — force uncertain
+                    fused = 50
+                    signal_source = f"too_short({word_count}w)"
+                    threshold = 50
+                elif word_count < 150:
                     threshold = 65
                 elif word_count < 300:
                     threshold = 55
