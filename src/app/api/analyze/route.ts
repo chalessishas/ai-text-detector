@@ -135,6 +135,7 @@ export async function POST(req: NextRequest) {
       scoringEligible: classification ? wordCount >= 50 : wordCount >= 300,
       classification,
       fused,
+      segmentAnalysis: pyResult.segment_analysis as AnalysisResult["segmentAnalysis"],
       hasTokenData,
       aiSimilarityTags,
       aiVocabMatches,

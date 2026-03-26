@@ -85,6 +85,22 @@ export interface FusedResult {
   ppl_human_signal: boolean;
 }
 
+export interface SegmentScore {
+  start: number;
+  end: number;
+  sentences?: string[];
+  ai_score: number;
+  features?: { cv: number; tw: number; contr: number };
+}
+
+export interface SegmentAnalysis {
+  segments: SegmentScore[];
+  max_ai_score: number;
+  min_ai_score: number;
+  variance: number;
+  sandwich_risk: boolean;
+}
+
 export interface AnalysisResult {
   tokens: TokenData[];
   sentences: SentenceData[];
@@ -102,6 +118,7 @@ export interface AnalysisResult {
   scoringEligible: boolean;
   classification?: ClassificationResult;
   fused?: FusedResult;
+  segmentAnalysis?: SegmentAnalysis;
   hasTokenData: boolean;
   aiSimilarityTags: AISimilarityTag[];
   aiVocabMatches: AIVocabMatch[];

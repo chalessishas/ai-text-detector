@@ -401,6 +401,14 @@ function DetectPanel({
                     </span>
                   )}
                 </div>
+                {result.segmentAnalysis?.sandwich_risk && (
+                  <div className="mt-2 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                    Mixed content detected — some sections show strong AI patterns while others appear human-written.
+                    <span className="opacity-60 ml-1">
+                      (AI segments: {result.segmentAnalysis.max_ai_score}%, Human segments: {result.segmentAnalysis.min_ai_score}%)
+                    </span>
+                  </div>
+                )}
                 {result.classification && (
                   <div className="flex gap-1.5 mt-2">
                     {Object.entries(result.classification.probabilities).map(([name, prob]) => (
