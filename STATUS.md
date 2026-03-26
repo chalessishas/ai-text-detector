@@ -1,10 +1,32 @@
 # AI Text X-Ray — 项目状态
 
-> 最后更新: 2026-03-26 02:40
+> 最后更新: 2026-03-26 05:30
 
 ---
 
 ## 最近更新（新的在上面）
+
+### [2026-03-26 05:30] — 自治训练循环完成（7 commits, 4 hr）
+
+**总成果**：
+| 组件 | 之前 | 之后 | 改进 |
+|------|------|------|------|
+| LR | v1: 68.6% (5 features) | **v3: 86.1%** (24 features) | **+17.5%** |
+| DeBERTa | v1: 不平衡数据 | **v4: 97.6%** 4-class (RunPod) | 平衡训练 |
+| Fusion | DeBERTa 30% 固定 | DeBERTa 低信心 10-15% | 减少 FP |
+
+**新增文件**：
+- `dataset_v4.jsonl` — 69K 平衡 4-class (17294×4)
+- `dataset_adversarial_v4.jsonl` — 69K 对抗样本 (14 攻击)
+- `data_human_hc3.jsonl` + `data_human_imdb.jsonl` — 8K 多样 human 数据
+- `models/detector_v4/` — DeBERTa v4 (RunPod 4090, $0.78)
+- `models/perplexity_lr_v3.pkl` — LR v3 (24 features)
+- 2 份 research reports in docs/research/
+
+**下一步优先级**（from research）：
+1. 69K adversarial 样本加入 LR 训练（提升鲁棒性）
+2. 构建 100+ 样本 FPR 测试套件（诚实测假阳率）
+3. Fusion 权重用 held-out set 自动优化（替代手调）
 
 ### [2026-03-26 02:40] — 训练循环：数据修复 + LR 重训 + RunPod DeBERTa
 
