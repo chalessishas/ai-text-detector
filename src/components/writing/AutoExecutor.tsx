@@ -39,33 +39,64 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
   const [document, setDocument] = useState("");
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [checkpointInput, setCheckpointInput] = useState("");
+  // AI-generated options for checkpoint-with-options blocks
+  const [aiOptions, setAiOptions] = useState("");
+  const [loadingOptions, setLoadingOptions] = useState(false);
   const [executionLog, setExecutionLog] = useState<Array<{ blockType: string; dialogue: string; timestamp: number }>>([]);
+  // Text results from analysis blocks (shown in execution area)
+  const [textResults, setTextResults] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [showLog, setShowLog] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const editorRef = useRef<EditorHandle>(null);
-  // Track document version from auto blocks to avoid re-rendering on user edits
   const [autoDocVersion, setAutoDocVersion] = useState(0);
 
   const currentBlock = board[currentIndex];
   const currentDef = currentBlock ? getBlockDef(currentBlock.type) : null;
-  const isCheckpointBlock = currentDef?.mode === "chat";
   const isFinished = status === "done" || status === "cancelled";
   const editorDisabled = !isFinished && !isEditing;
 
+  // Determine if current block is a checkpoint (user provides input)
+  const isCheckpoint = currentDef?.auto?.checkpoint === true;
+  // Pure checkpoint = thesis (no AI options)
+  const isPureCheckpoint = isCheckpoint && currentBlock?.type === "thesis";
+  // Options checkpoint = brainstorm, audience, outline, hook (AI generates options first)
+  const isOptionsCheckpoint = isCheckpoint && !isPureCheckpoint;
+
+  // Call API to generate AI options for checkpoint-with-options blocks
+  const fetchOptions = useCallback(async (blockIndex: number, currentOutputs: PipelineOutputs, currentDoc: string) => {
+    const block = board[blockIndex];
+    setLoadingOptions(true);
+    setAiOptions("");
+    try {
+      const res = await apiCall<AutoExecuteResponse>({
+        action: "auto-execute",
+        blockType: block.type,
+        genre,
+        topic,
+        language,
+        document: currentDoc,
+        previousOutputs: currentOutputs,
+      });
+      setAiOptions(res.optionsResult || res.textResult || "");
+      setLoadingOptions(false);
+    } catch (err) {
+      setLoadingOptions(false);
+      // Options generation failed — let user provide input manually
+      setAiOptions(language === "zh" ? "(AI 生成选项失败，请手动输入)" : "(Failed to generate options — please type manually)");
+    }
+  }, [board, genre, topic, language]);
+
+  // Execute a non-checkpoint block (AI does the work)
   const executeBlock = useCallback(async (blockIndex: number, currentOutputs: PipelineOutputs, currentDoc: string) => {
     const block = board[blockIndex];
-    const def = getBlockDef(block.type);
-
-    if (def.mode !== "editor") {
-      return { nextIndex: blockIndex + 1, outputs: currentOutputs, doc: currentDoc };
-    }
 
     setStatus("executing");
+    setCurrentIndex(blockIndex);
 
     const res = await apiCall<AutoExecuteResponse>({
       action: "auto-execute",
-      blockType: block.type as "draft" | "analyze" | "grammar",
+      blockType: block.type,
       genre,
       topic,
       language,
@@ -76,15 +107,26 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
     const newOutputs = { ...currentOutputs };
     let newDoc = currentDoc;
 
-    if (block.type === "draft" && res.documentUpdate) {
+    // Handle response based on block type
+    if (res.documentUpdate) {
+      // Doc-producing or doc-modifying blocks
       newDoc = res.documentUpdate;
-      newOutputs.draft = { document: newDoc };
+      if (block.type === "draft") {
+        newOutputs.draft = { document: newDoc };
+      } else {
+        // Doc-modifying blocks (evidence, counterargument, conclusion, transitions, style-edit)
+        (newOutputs as Record<string, unknown>)[block.type] = { document: newDoc, changes: res.dialogue };
+      }
     } else if (block.type === "analyze" && res.analysisResult) {
       newOutputs.analyze = res.analysisResult;
       setAnnotations(res.analysisResult.annotations ?? []);
     } else if (block.type === "grammar" && res.grammarResult) {
       newDoc = res.grammarResult.document;
       newOutputs.grammar = res.grammarResult;
+    } else if (res.textResult) {
+      // Text-output blocks (research, evidence-eval, peer-review, reader-sim, logic-check, voice-lab, submit-ready, self-review)
+      (newOutputs as Record<string, unknown>)[block.type] = { text: res.textResult };
+      setTextResults((prev) => ({ ...prev, [block.type]: res.textResult! }));
     }
 
     setExecutionLog((prev) => [...prev, {
@@ -96,31 +138,40 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
     return { nextIndex: blockIndex + 1, outputs: newOutputs, doc: newDoc };
   }, [board, genre, topic, language]);
 
+  // Run blocks until we hit a checkpoint or finish
   const runUntilCheckpoint = useCallback(async (startIndex: number, currentOutputs: PipelineOutputs, currentDoc: string) => {
     let idx = startIndex;
     let outs = currentOutputs;
     let doc = currentDoc;
 
     while (idx < board.length) {
-      const def = getBlockDef(board[idx].type);
+      const block = board[idx];
+      const def = getBlockDef(block.type);
 
-      if (def.mode === "chat") {
+      // Checkpoint block — pause for user input
+      if (def.auto?.checkpoint) {
         setCurrentIndex(idx);
         setOutputs(outs);
         setDocument(doc);
         setAutoDocVersion((v) => v + 1);
         setStatus("checkpoint");
         setCheckpointInput("");
+        setAiOptions("");
+        // For options checkpoints, fetch AI options
+        if (block.type !== "thesis") {
+          fetchOptions(idx, outs, doc);
+        }
         return;
       }
 
-      if (def.mode === "checklist" || def.mode === "lab") {
+      // Block without auto config — skip (shouldn't happen now, but safety)
+      if (!def.auto) {
         idx++;
         continue;
       }
 
+      // Auto-executable block — AI does the work
       try {
-        setCurrentIndex(idx);
         const result = await executeBlock(idx, outs, doc);
         outs = result.outputs;
         doc = result.doc;
@@ -129,30 +180,28 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
         setDocument(doc);
         setAutoDocVersion((v) => v + 1);
       } catch (err) {
+        setCurrentIndex(idx);
         setError(err instanceof Error ? err.message : "Execution failed");
         setStatus("error");
         return;
       }
-
-      if (idx < board.length) {
-        setCurrentIndex(idx);
-        setStatus("checkpoint");
-        return;
-      }
     }
 
+    // All blocks done
     setOutputs(outs);
     setDocument(doc);
     setAutoDocVersion((v) => v + 1);
     setStatus("done");
-  }, [board, executeBlock]);
+  }, [board, executeBlock, fetchOptions]);
 
   function handleCheckpointSubmit() {
-    if (!checkpointInput.trim() && isCheckpointBlock) return;
+    if (!checkpointInput.trim()) return;
 
     const newOutputs = { ...outputs };
-    if (currentBlock && isCheckpointBlock) {
-      const key = currentBlock.type as keyof PipelineOutputs;
+    const key = currentBlock.type as string;
+    if (isOptionsCheckpoint) {
+      (newOutputs as Record<string, unknown>)[key] = { userInput: checkpointInput.trim(), aiOptions };
+    } else {
       (newOutputs as Record<string, unknown>)[key] = { userInput: checkpointInput.trim() };
     }
 
@@ -162,7 +211,7 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
 
   function handleContinue() {
     setIsEditing(false);
-    runUntilCheckpoint(currentIndex, outputs, document);
+    runUntilCheckpoint(currentIndex + 1, outputs, document);
   }
 
   function handleStop() {
@@ -174,6 +223,7 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
     runUntilCheckpoint(currentIndex, outputs, document);
   }
 
+  // ── Progress bar ──
   const progressBar = (
     <div className="h-10 bg-[var(--card)] border-b border-[var(--card-border)] flex items-center px-3 gap-1 overflow-x-auto shrink-0">
       <button
@@ -186,7 +236,6 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
         const def = getBlockDef(block.type);
         const isCurrent = idx === currentIndex;
         const isDone = idx < currentIndex;
-        const isSkipped = def.mode === "checklist" || def.mode === "lab";
         return (
           <div
             key={block.id}
@@ -195,9 +244,7 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
                 ? "text-white"
                 : isDone
                   ? "bg-green-50 text-green-700"
-                  : isSkipped
-                    ? "text-[var(--muted)]/40 line-through"
-                    : "text-[var(--muted)]"
+                  : "text-[var(--muted)]"
             }`}
             style={isCurrent ? { background: def.color } : undefined}
           >
@@ -217,9 +264,11 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
     ? CHECKPOINT_DESCRIPTIONS[currentDef.auto.promptKey]
     : null;
 
+  // ── Execution area (right panel) ──
   const executionArea = (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto p-4 space-y-4">
+        {/* Executing spinner */}
         {status === "executing" && (
           <div className="text-center py-8 space-y-3">
             <div className="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin mx-auto" />
@@ -229,7 +278,8 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
           </div>
         )}
 
-        {status === "checkpoint" && isCheckpointBlock && checkpointDesc && (
+        {/* Checkpoint: pure input (thesis only) */}
+        {status === "checkpoint" && isPureCheckpoint && checkpointDesc && (
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-[var(--foreground)]">
               {language === "zh" ? checkpointDesc.titleZh : checkpointDesc.title}
@@ -259,7 +309,59 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
           </div>
         )}
 
-        {status === "checkpoint" && !isCheckpointBlock && (
+        {/* Checkpoint with AI options (brainstorm, audience, outline, hook) */}
+        {status === "checkpoint" && isOptionsCheckpoint && checkpointDesc && (
+          <div className="space-y-3">
+            <h3 className="text-sm font-medium text-[var(--foreground)]">
+              {language === "zh" ? checkpointDesc.titleZh : checkpointDesc.title}
+            </h3>
+
+            {/* AI options */}
+            {loadingOptions ? (
+              <div className="flex items-center gap-2 py-4">
+                <div className="w-4 h-4 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs text-[var(--muted)]">
+                  {language === "zh" ? "AI 正在生成选项..." : "AI generating options..."}
+                </span>
+              </div>
+            ) : aiOptions ? (
+              <div className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg p-3 max-h-60 overflow-auto">
+                <p className="text-[10px] text-[var(--accent)] font-medium mb-2">
+                  {language === "zh" ? "AI 建议：" : "AI suggests:"}
+                </p>
+                <pre className="text-xs text-[var(--foreground)] whitespace-pre-wrap leading-relaxed font-[inherit]">
+                  {aiOptions}
+                </pre>
+              </div>
+            ) : null}
+
+            {/* User input */}
+            <textarea
+              value={checkpointInput}
+              onChange={(e) => setCheckpointInput(e.target.value)}
+              placeholder={language === "zh" ? checkpointDesc.placeholderZh : checkpointDesc.placeholder}
+              className="w-full h-24 bg-[var(--background)] border border-[var(--card-border)] rounded-lg text-sm text-[var(--foreground)] p-3 resize-none focus:outline-none focus:ring-1 focus:ring-[var(--accent)]/30 placeholder:text-[#c4bfb7]"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleCheckpointSubmit}
+                disabled={!checkpointInput.trim()}
+                className="bg-[var(--accent)] hover:bg-[#b5583a] disabled:bg-[#d4cfc7] disabled:text-[#a09a92] text-white text-xs font-medium px-4 py-2 rounded-md transition-all"
+              >
+                {language === "zh" ? "继续" : "Continue"} →
+              </button>
+              <button
+                onClick={handleStop}
+                className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] px-3 py-2 transition-colors"
+              >
+                {language === "zh" ? "停止" : "Stop"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Review checkpoint (after auto blocks complete) */}
+        {status === "checkpoint" && !isCheckpoint && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-green-500" />
@@ -270,6 +372,21 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
             <p className="text-xs text-[var(--muted)] leading-relaxed">
               {executionLog[executionLog.length - 1]?.dialogue}
             </p>
+
+            {/* Show text results for analysis blocks */}
+            {(() => {
+              const lastBlock = board[currentIndex - 1];
+              const lastResult = lastBlock ? textResults[lastBlock.type] : null;
+              if (!lastResult) return null;
+              return (
+                <div className="bg-[var(--background)] border border-[var(--card-border)] rounded-lg p-3 max-h-48 overflow-auto">
+                  <pre className="text-xs text-[var(--foreground)] whitespace-pre-wrap leading-relaxed font-[inherit]">
+                    {lastResult}
+                  </pre>
+                </div>
+              );
+            })()}
+
             {isEditing ? (
               <div className="space-y-2">
                 <p className="text-xs text-[var(--accent)]">
@@ -307,6 +424,7 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
           </div>
         )}
 
+        {/* Error */}
         {status === "error" && (
           <div className="space-y-3">
             <div className="bg-red-50 border border-red-200 rounded-lg p-3">
@@ -329,6 +447,7 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
           </div>
         )}
 
+        {/* Finished */}
         {isFinished && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
@@ -351,6 +470,7 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
           </div>
         )}
 
+        {/* Execution log */}
         {executionLog.length > 0 && (
           <div className="border-t border-[var(--card-border)] pt-3">
             <button
@@ -375,7 +495,6 @@ export default function AutoExecutor({ board, genre, topic, language, onExit }: 
     </div>
   );
 
-  // Only recompute HTML when document changes from auto blocks, not user edits
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const editorContent = useMemo(() => textToHtml(document), [autoDocVersion]);
 

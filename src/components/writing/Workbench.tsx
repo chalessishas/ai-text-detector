@@ -35,9 +35,9 @@ export default function Workbench({
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
 
-  const TOEFL_AUTO_BLOCKS: BlockType[] = ["thesis", "outline", "hook", "draft", "analyze", "grammar"];
-  const isAutoEnabled = board.length === TOEFL_AUTO_BLOCKS.length
-    && board.every((b, i) => b.type === TOEFL_AUTO_BLOCKS[i]);
+  // Auto-start enabled when board has blocks with auto configs
+  const isAutoEnabled = board.length > 0
+    && board.some((b) => getBlockDef(b.type).auto != null);
 
   // Group catalog by category
   const grouped = CATEGORY_ORDER.map((cat) => ({
@@ -259,7 +259,7 @@ export default function Workbench({
                       <button
                         onClick={onAutoStart}
                         disabled={!isAutoEnabled}
-                        title={!isAutoEnabled ? "Auto mode supports TOEFL preset only for now" : "AI executes blocks, you provide ideas"}
+                        title={!isAutoEnabled ? "Add blocks to enable auto mode" : "AI executes blocks, you provide ideas at checkpoints"}
                         className={`w-full text-sm font-medium py-3 rounded-lg transition-all border ${
                           isAutoEnabled
                             ? "bg-[var(--accent)] hover:bg-[#b5583a] text-white border-transparent"

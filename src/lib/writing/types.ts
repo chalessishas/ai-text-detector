@@ -36,8 +36,15 @@ export interface Annotation {
   rewrite?: string;
 }
 
+// Checkpoint: user provides their idea
 export interface IdeaCheckpointOutput {
   userInput: string;
+}
+
+// Checkpoint with AI-generated options: user picks from AI proposals
+export interface OptionsCheckpointOutput {
+  userInput: string;   // what user typed/selected
+  aiOptions?: string;  // AI-generated options shown to user
 }
 
 export interface DraftOutput {
@@ -53,13 +60,44 @@ export interface GrammarOutput {
   }>;
 }
 
+// Generic text output for blocks that produce analysis/feedback (not doc changes)
+export interface TextOutput {
+  text: string;
+}
+
+// Doc-modifying blocks produce updated document
+export interface DocModifyOutput {
+  document: string;
+  changes: string; // description of what changed
+}
+
 export type PipelineOutputs = {
+  // Checkpoints (user ideas)
   thesis?: IdeaCheckpointOutput;
-  outline?: IdeaCheckpointOutput;
-  hook?: IdeaCheckpointOutput;
+  // Checkpoints with AI options
+  brainstorm?: OptionsCheckpointOutput;
+  audience?: OptionsCheckpointOutput;
+  outline?: OptionsCheckpointOutput;
+  hook?: OptionsCheckpointOutput;
+  // Auto-exec: produce document
   draft?: DraftOutput;
-  analyze?: AnalyzeResponse;
   grammar?: GrammarOutput;
+  // Auto-exec: produce analysis/feedback (text output)
+  research?: TextOutput;
+  "evidence-eval"?: TextOutput;
+  "peer-review"?: TextOutput;
+  "reader-sim"?: TextOutput;
+  analyze?: AnalyzeResponse;
+  "logic-check"?: TextOutput;
+  "voice-lab"?: TextOutput;
+  "submit-ready"?: TextOutput;
+  "self-review"?: TextOutput;
+  // Auto-exec: modify document
+  evidence?: DocModifyOutput;
+  counterargument?: DocModifyOutput;
+  conclusion?: DocModifyOutput;
+  transitions?: DocModifyOutput;
+  "style-edit"?: DocModifyOutput;
 };
 
 export type PipelineStatus = 'idle' | 'executing' | 'checkpoint' | 'done' | 'cancelled' | 'error';
@@ -145,14 +183,14 @@ export interface WritingAssistRequest {
   temperatures?: number[];
   blockSystemPrompt?: string;
   profile?: ReportProfileData;
-  blockType?: "draft" | "analyze" | "grammar";
+  blockType?: string;
   language?: 'en' | 'zh';
   previousOutputs?: PipelineOutputs;
 }
 
 export interface AutoExecuteRequest {
   action: "auto-execute";
-  blockType: "draft" | "analyze" | "grammar";
+  blockType: string;  // any BlockType
   genre: string;
   topic: string;
   language: 'en' | 'zh';
@@ -162,9 +200,11 @@ export interface AutoExecuteRequest {
 
 export interface AutoExecuteResponse {
   dialogue: string;
-  documentUpdate?: string;
-  analysisResult?: AnalyzeResponse;
-  grammarResult?: GrammarOutput;
+  documentUpdate?: string;       // for doc-producing/modifying blocks
+  analysisResult?: AnalyzeResponse; // for analyze block
+  grammarResult?: GrammarOutput;    // for grammar block
+  textResult?: string;           // for text-output blocks (research, logic-check, etc.)
+  optionsResult?: string;        // for checkpoint-with-options (brainstorm, audience, outline, hook)
 }
 
 export interface GuideStepResponse {

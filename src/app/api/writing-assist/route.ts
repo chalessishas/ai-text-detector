@@ -222,90 +222,130 @@ async function handleLabRewrite(body: WritingAssistRequest): Promise<NextRespons
   return NextResponse.json(data);
 }
 
+// Blocks that produce JSON (need response_format: json_object)
+const JSON_BLOCKS = new Set(["analyze", "grammar"]);
+// Blocks that modify the document (return updated full text)
+const DOC_MODIFY_BLOCKS = new Set(["evidence", "counterargument", "conclusion", "transitions", "style-edit"]);
+// Blocks that produce the document from scratch
+const DOC_PRODUCE_BLOCKS = new Set(["draft"]);
+// Blocks that generate options for checkpoints (AI proposes, user picks)
+const OPTIONS_BLOCKS = new Set(["brainstorm-options", "audience-options", "outline-options", "hook-options"]);
+
 async function handleAutoExecute(body: WritingAssistRequest): Promise<NextResponse> {
   const { blockType, genre, topic, language, document, previousOutputs } = body;
-
-  if (!blockType || !["draft", "analyze", "grammar"].includes(blockType)) {
-    return NextResponse.json({ error: "Invalid blockType" }, { status: 400 });
+  if (!blockType) {
+    return NextResponse.json({ error: "blockType required" }, { status: 400 });
   }
-  // Topic can be empty — thesis checkpoint provides the core idea
+
   const effectiveTopic = topic || previousOutputs?.thesis?.userInput || "general essay";
-
-  const client = getClient();
-  const systemPrompt = AUTO_PROMPTS[`${blockType}-auto`];
-  if (!systemPrompt) {
-    return NextResponse.json({ error: `No auto prompt for ${blockType}` }, { status: 400 });
-  }
-
   const lang = language === "zh" ? "Chinese" : "English";
 
-  if (blockType === "draft") {
-    const userContext = buildDraftContext(genre!, effectiveTopic, lang, previousOutputs);
-    const res = await client.chat.completions.create({
-      model: MODEL,
-      temperature: 0.7,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContext },
-      ],
-    });
-    const text = res.choices[0].message.content ?? "";
-    const result: AutoExecuteResponse = {
-      dialogue: `Wrote a ${wordCount(text)}-word ${genre} essay based on your thesis and outline.`,
-      documentUpdate: text.trim(),
-    };
-    return NextResponse.json(result);
+  // Determine the prompt key: checkpoint-with-options blocks use the options key
+  const promptKey = OPTIONS_BLOCKS.has(`${blockType}-options`)
+    ? `${blockType}-options`
+    : `${blockType}-auto`;
+
+  const client = getClient();
+  const systemPrompt = AUTO_PROMPTS[promptKey];
+  if (!systemPrompt) {
+    return NextResponse.json({ error: `No auto prompt for ${blockType} (key: ${promptKey})` }, { status: 400 });
   }
 
-  if (blockType === "analyze") {
-    if (!document) {
-      return NextResponse.json({ error: "Document required for analyze" }, { status: 400 });
-    }
-    const res = await client.chat.completions.create({
-      model: MODEL,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: document },
-      ],
-    });
-    const data = parseJSON<{ annotations: unknown[]; traitScores: Record<string, number>; summary: string; conventionsSuppressed: boolean }>(
-      res.choices[0].message.content ?? ""
-    );
-    const result: AutoExecuteResponse = {
-      dialogue: `Analyzed the essay across 7 traits. ${data.summary}`,
-      analysisResult: data as AnalyzeResponse,
-    };
-    return NextResponse.json(result);
-  }
+  const userContext = buildAutoContext(blockType, genre!, effectiveTopic, lang, document, previousOutputs);
+  const useJson = JSON_BLOCKS.has(blockType);
 
-  // grammar
-  if (!document) {
-    return NextResponse.json({ error: "Document required for grammar" }, { status: 400 });
-  }
   const res = await client.chat.completions.create({
     model: MODEL,
-    temperature: 0,
-    response_format: { type: "json_object" },
+    temperature: useJson ? 0 : 0.7,
+    ...(useJson ? { response_format: { type: "json_object" as const } } : {}),
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: document },
+      { role: "user", content: userContext },
     ],
   });
-  const data = parseJSON<GrammarOutput>(res.choices[0].message.content ?? "");
-  const result: AutoExecuteResponse = {
-    dialogue: `Fixed ${data.corrections.length} mechanical error${data.corrections.length !== 1 ? "s" : ""}.`,
-    grammarResult: data,
-  };
-  return NextResponse.json(result);
+
+  const raw = res.choices[0].message.content ?? "";
+
+  // Route response based on block category
+  if (blockType === "analyze") {
+    const data = parseJSON<{ annotations: unknown[]; traitScores: Record<string, number>; summary: string; conventionsSuppressed: boolean }>(raw);
+    return NextResponse.json({
+      dialogue: `Analyzed the essay across 7 traits. ${data.summary}`,
+      analysisResult: data as AnalyzeResponse,
+    } satisfies AutoExecuteResponse);
+  }
+
+  if (blockType === "grammar") {
+    const data = parseJSON<GrammarOutput>(raw);
+    return NextResponse.json({
+      dialogue: `Fixed ${data.corrections.length} mechanical error${data.corrections.length !== 1 ? "s" : ""}.`,
+      grammarResult: data,
+    } satisfies AutoExecuteResponse);
+  }
+
+  if (DOC_PRODUCE_BLOCKS.has(blockType)) {
+    return NextResponse.json({
+      dialogue: `Wrote a ${wordCount(raw)}-word ${genre} essay based on your ideas.`,
+      documentUpdate: raw.trim(),
+    } satisfies AutoExecuteResponse);
+  }
+
+  if (DOC_MODIFY_BLOCKS.has(blockType)) {
+    return NextResponse.json({
+      dialogue: `Updated the document: ${blockType} applied.`,
+      documentUpdate: raw.trim(),
+    } satisfies AutoExecuteResponse);
+  }
+
+  if (OPTIONS_BLOCKS.has(`${blockType}-options`)) {
+    return NextResponse.json({
+      dialogue: `Generated options for ${blockType}.`,
+      optionsResult: raw.trim(),
+    } satisfies AutoExecuteResponse);
+  }
+
+  // Default: text output (research, evidence-eval, peer-review, reader-sim, logic-check, voice-lab, submit-ready, self-review)
+  return NextResponse.json({
+    dialogue: `Completed ${blockType}.`,
+    textResult: raw.trim(),
+  } satisfies AutoExecuteResponse);
 }
 
-function buildDraftContext(genre: string, topic: string, language: string, outputs?: PipelineOutputs): string {
+function buildAutoContext(
+  blockType: string, genre: string, topic: string, language: string,
+  document?: string, outputs?: PipelineOutputs,
+): string {
   const parts = [`Genre: ${genre}`, `Topic: ${topic}`, `Language: ${language}`];
+
+  // Add thesis if available
   if (outputs?.thesis?.userInput) parts.push(`Thesis: ${outputs.thesis.userInput}`);
-  if (outputs?.outline?.userInput) parts.push(`Outline:\n${outputs.outline.userInput}`);
-  if (outputs?.hook?.userInput) parts.push(`Hook concept: ${outputs.hook.userInput}`);
+  // Add outline if available
+  const outlineInput = outputs?.outline?.userInput ?? (outputs?.outline as { userInput?: string })?.userInput;
+  if (outlineInput) parts.push(`Outline:\n${outlineInput}`);
+  // Add hook if available
+  const hookInput = outputs?.hook?.userInput ?? (outputs?.hook as { userInput?: string })?.userInput;
+  if (hookInput) parts.push(`Hook concept: ${hookInput}`);
+  // Add brainstorm direction if available
+  if (outputs?.brainstorm?.userInput) parts.push(`Direction: ${outputs.brainstorm.userInput}`);
+  // Add audience if available
+  if (outputs?.audience?.userInput) parts.push(`Audience: ${outputs.audience.userInput}`);
+  // Add research findings if available
+  if (outputs?.research?.text) parts.push(`Research findings:\n${outputs.research.text}`);
+
+  // Add current document for blocks that need it
+  if (document && (DOC_MODIFY_BLOCKS.has(blockType) || JSON_BLOCKS.has(blockType) ||
+      ["peer-review", "reader-sim", "logic-check", "voice-lab", "submit-ready", "self-review"].includes(blockType))) {
+    parts.push(`\nCurrent document:\n${document}`);
+  }
+
+  // Add analyze results for blocks that need them
+  if (outputs?.analyze?.summary) {
+    parts.push(`Analysis summary: ${outputs.analyze.summary}`);
+    if (outputs.analyze.traitScores) {
+      parts.push(`Trait scores: ${JSON.stringify(outputs.analyze.traitScores)}`);
+    }
+  }
+
   return parts.join("\n\n");
 }
 
