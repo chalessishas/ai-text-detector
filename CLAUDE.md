@@ -95,7 +95,7 @@ ai-text-detector/
 5. **llama-cpp-python on Apple Silicon** — Metal acceleration compilation can be flaky.
 6. **report action is 501 stub** — `/api/writing-assist` report action returns 501, not implemented.
 7. ~~**lib/prompts.ts is dead code**~~ — RESOLVED: deleted in be706a4.
-8. **WritingCenter always shows welcome** — Should skip to writing stage when saved draft exists in localStorage.
+8. ~~**WritingCenter always shows welcome**~~ — RESOLVED: current code starts at "workbench" phase directly, no welcome screen.
 9. **FAISS index + jsonl = 9GB+ total** — Not suitable for serverless, needs persistent disk.
 10. **Tiptap v3 API instability** — Plugin API still evolving, custom extensions may need updates.
 11. **llama-cpp-python doesn't support qwen3.5** — Use MLX (`/opt/anaconda3/bin/python3.13` + `mlx-lm 0.31.1`). Python 3.9 can't install mlx>=0.30.4.
