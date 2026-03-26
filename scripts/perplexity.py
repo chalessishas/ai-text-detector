@@ -933,6 +933,8 @@ class Handler(BaseHTTPRequestHandler):
                             signal_source = f"lr_confident(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
                     elif has_lr:
                         # Default vote — but handle DeBERTa unreliability
+                        deb_logit_gap = clf_data.get("logit_gap", 5.0)
+                        deb_uncertain = deb_logit_gap < 2.0 or (50 < deb_ai < 75)
                         if ppl_score >= 70 and lr_ai >= 60 and deb_ai < 20:
                             # PPL+LR say AI but DeBERTa says human → DeBERTa wrong, demote it
                             fused = lr_ai * 0.30 + deb_ai * 0.10 + ppl_score * 0.35 + stat_score * 0.25
@@ -941,6 +943,14 @@ class Handler(BaseHTTPRequestHandler):
                             # PPL+LR say human but DeBERTa says AI → DeBERTa wrong, demote it
                             fused = lr_ai * 0.30 + deb_ai * 0.10 + ppl_score * 0.35 + stat_score * 0.25
                             signal_source = f"ppl_lr_override(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
+                        elif deb_uncertain and ppl_score <= 40 and lr_ai <= 40:
+                            # DeBERTa weakly says AI but PPL+LR lean human → trust PPL+LR
+                            fused = lr_ai * 0.35 + deb_ai * 0.10 + ppl_score * 0.35 + stat_score * 0.20
+                            signal_source = f"deb_uncertain_human(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},gap={deb_logit_gap:.1f})"
+                        elif deb_uncertain:
+                            # DeBERTa uncertain — reduce its weight
+                            fused = lr_ai * 0.30 + deb_ai * 0.15 + ppl_score * 0.30 + stat_score * 0.25
+                            signal_source = f"deb_uncertain(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},gap={deb_logit_gap:.1f})"
                         else:
                             fused = lr_ai * 0.25 + deb_ai * 0.30 + ppl_score * 0.25 + stat_score * 0.20
                             signal_source = f"vote(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
