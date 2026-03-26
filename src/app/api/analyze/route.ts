@@ -110,7 +110,14 @@ export async function POST(req: NextRequest) {
 
     const hasTokenData = tokens.length > 0;
     const sentenceScores = computeSentenceScores(sentences, tokens);
-    const wordCount = trimmed.split(/\s+/).filter((w) => w.length > 0).length;
+    // Word count — handle CJK text (no spaces between words)
+    let wordCount = trimmed.split(/\s+/).filter((w) => w.length > 0).length;
+    if (wordCount < 10 && trimmed.length > 50) {
+      const cjkChars = (trimmed.match(/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/g) || []).length;
+      if (cjkChars > trimmed.length * 0.3) {
+        wordCount = Math.floor(cjkChars / 2);
+      }
+    }
 
     // Only compute heuristic tags when we have real token data
     const aiSimilarityTags = hasTokenData
