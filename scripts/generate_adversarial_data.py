@@ -189,8 +189,119 @@ def attack_code_injection(text: str) -> str:
     return " ".join(result)
 
 
-# All attack functions
+def attack_back_translation(text: str) -> str:
+    """Simulate back-translation through another language (translationese)."""
+    replacements = {
+        "Furthermore,": "In addition,", "Moreover,": "Also,",
+        "has fundamentally transformed": "has changed greatly",
+        "unprecedented": "never before seen", "leveraging": "using",
+        "facilitating": "making possible", "paradigm shift": "major change",
+        "multifaceted": "many-sided", "encompasses": "covers",
+        "underscores": "highlights", "mitigate": "reduce",
+    }
+    result = text
+    for old, new in replacements.items():
+        result = result.replace(old, new)
+        result = result.replace(old.lower(), new.lower())
+    # Translationese: split long sentences at which/that/and
+    sentences = re.split(r'(?<=[.!?])\s+', result)
+    output = []
+    for s in sentences:
+        if len(s.split()) > 20:
+            parts = re.split(r'\b(which|that|and)\b', s, maxsplit=1)
+            if len(parts) >= 3:
+                output.append(parts[0].rstrip(', ') + '.')
+                rest = parts[2].strip()
+                if rest:
+                    output.append(rest[0].upper() + rest[1:] if len(rest) > 1 else rest)
+            else:
+                output.append(s)
+        else:
+            output.append(s)
+    return " ".join(output)
+
+
+def attack_human_sandwich(text: str) -> str:
+    """Wrap AI text with human-written intro and conclusion."""
+    intros = [
+        "So I've been thinking about this topic a lot lately, and honestly I wasn't sure where to start. But here's what I came up with after doing some reading.",
+        "I wanted to write about this because it came up in class last week and I realized I didn't know as much as I thought. Here goes nothing.",
+        "This is something I've been interested in since high school honestly. My teacher back then made us do a project on it and it kinda stuck with me.",
+    ]
+    conclusions = [
+        "Anyway that's basically what I think. I'm sure there's more to it but this is where I'm at right now.",
+        "I know this isn't a perfect analysis but I tried to cover the main points. If I missed something feel free to let me know.",
+        "So yeah, that's my take on it. Not sure if I'm totally right but it makes sense to me based on what I've read so far.",
+    ]
+    return random.choice(intros) + "\n\n" + text + "\n\n" + random.choice(conclusions)
+
+
+def attack_style_prompt(text: str) -> str:
+    """Simulate AI text generated with a humanizing prompt (hedges, self-corrections)."""
+    hedges = ["I think ", "I guess ", "probably ", "kind of ", "sort of "]
+    self_corrections = ["well, actually, ", "wait no, ", "I mean ", "or rather, "]
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    result = []
+    for i, s in enumerate(sentences):
+        if random.random() < 0.25:
+            s = random.choice(hedges) + s[0].lower() + s[1:]
+        if random.random() < 0.1 and i > 0:
+            s = random.choice(self_corrections) + s[0].lower() + s[1:]
+        if random.random() < 0.15 and len(s.split()) > 10:
+            words = s.split()
+            mid = len(words) // 2
+            s = " ".join(words[:mid]) + " — " + " ".join(words[mid:])
+        result.append(s)
+    return " ".join(result)
+
+
+def attack_data_injection(text: str) -> str:
+    """Insert specific numbers, dates, and citations into AI text."""
+    citations = [
+        "(Johnson & Lee, 2024)", "(Zhang et al., 2023)", "(Brown, 2025, p. 47)",
+        "(WHO, 2024)", "(National Bureau of Statistics, 2023)",
+    ]
+    data_inserts = [
+        "approximately 34.2%", "nearly 67%", "an estimated 2.8 million",
+        "between 2019 and 2024", "a 15.3% increase year-over-year",
+    ]
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    result = []
+    for s in sentences:
+        if random.random() < 0.35:
+            s = re.sub(r'\bsignificant(?:ly)?\b', random.choice(data_inserts), s, count=1)
+        if random.random() < 0.3:
+            s = s.rstrip('.') + ' ' + random.choice(citations) + '.'
+        result.append(s)
+    return " ".join(result)
+
+
+def attack_lexical_substitution(text: str) -> str:
+    """Replace AI-typical formal words with simpler synonyms."""
+    synonyms = {
+        "fundamentally": "deeply", "significantly": "greatly",
+        "consequently": "as a result", "unprecedented": "unmatched",
+        "comprehensive": "thorough", "innovative": "new",
+        "facilitate": "help", "leverage": "use", "paradigm": "model",
+        "robust": "strong", "enhance": "improve", "diverse": "varied",
+        "transformative": "game-changing", "crucial": "key",
+        "utilize": "use", "demonstrate": "show", "implement": "carry out",
+        "optimal": "best", "substantial": "large",
+        "Moreover": "On top of that", "Furthermore": "Besides that",
+        "Nevertheless": "Still", "increasingly": "more and more",
+        "emerged as": "become", "plays a crucial role": "matters a lot",
+    }
+    result = text
+    for formal, simple in synonyms.items():
+        if random.random() < 0.7:
+            result = result.replace(formal, simple)
+            result = result.replace(formal.lower(), simple.lower())
+    return result
+
+
+# All attack functions (9 original + 5 new from adversarial analysis)
 ATTACKS = {
+    # Original 9
     "typo": attack_typos,
     "casual": attack_casual_tone,
     "dialogue": attack_dialogue,
@@ -200,6 +311,12 @@ ATTACKS = {
     "first_person": attack_first_person,
     "contraction": attack_contractions,
     "code_inject": attack_code_injection,
+    # New 5 from adversarial strategy analysis
+    "back_translation": attack_back_translation,
+    "human_sandwich": attack_human_sandwich,
+    "style_prompt": attack_style_prompt,
+    "data_injection": attack_data_injection,
+    "lexical_sub": attack_lexical_substitution,
 }
 
 # ── Built-in AI text samples ─────────────────────────────────────────────
