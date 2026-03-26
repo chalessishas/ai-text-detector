@@ -70,10 +70,32 @@
 
 ---
 
+## 6. Stacking Meta-Learner for Fusion Weight Optimization
+
+**Source**: [Optimizing Ensemble Weights (arXiv 1908.05287)](https://arxiv.org/abs/1908.05287), [Ensemble Framework for Text Classification (MDPI)](https://www.mdpi.com/2078-2489/16/2/85)
+
+**Finding**: Instead of hand-tuning fusion weights, train a meta-learner (LR or isotonic regression) on a held-out set. Input = 4 signal scores (DeBERTa, PPL, LR, Stats), output = final AI probability. Benefits:
+- Automatically discovers optimal weight per signal
+- Regularization can eliminate redundant signals
+- O(M) complexity, trains in seconds
+- Adapts to any future signal additions without re-tuning rules
+
+**Implementation**:
+```python
+# Collect 4 signal scores on held-out set
+X_meta = np.column_stack([deb_scores, ppl_scores, lr_scores, stat_scores])
+y_meta = true_labels
+meta_lr = LogisticRegression().fit(X_meta, y_meta)  # replaces 140 lines of if-else
+```
+
+**Priority**: HIGH — replaces the fragile 140-line fusion logic with a 5-line learned model.
+
+---
+
 ## Recommended Priority Actions
 
 1. **Include adversarial samples in LR training** — 69K samples already generated, free improvement (1 hr)
 2. **Build FPR test suite** — 100+ diverse human texts, honest FPR measurement (2 hr)
-3. **Learn fusion weights** — replace hand-tuned weights with optimized ones on held-out set (1 hr)
+3. **Stacking meta-learner for fusion** — replace 140 lines of if-else with learned weights (1 hr)
 4. **Add perturbation-invariance test** — measure feature stability under 14 attacks (1 hr)
 5. **5th independent signal** — AI-phrase density or readability, completely separate from PPL (30 min)
