@@ -347,7 +347,11 @@ class Humanizer:
     # ── Method 2: Structure (find human sentence with identical grammar) ────
 
     def _method_structure(self, src_sent: str, matches: list[dict]) -> dict:
-        """Find a corpus sentence with the same syntactic structure, unmodified."""
+        """Find a corpus sentence with matching syntactic structure.
+
+        Priority: semantic matches with compatible structure > pure structure matches.
+        This ensures the result is both structurally similar AND topically relevant.
+        """
         src_doc = self.nlp(src_sent)
         src_key = self._structure_key(src_doc)
         if not src_key:
@@ -357,17 +361,32 @@ class Humanizer:
 
         src_parts = src_key.split('|')
 
-        # Exact structure match from index
+        # Phase 1: Check semantic matches (from FAISS) for structure compatibility
+        # This keeps results topically relevant while matching structure
+        for m in matches:
+            m_doc = self.nlp(m['text'])
+            m_key = self._structure_key(m_doc)
+            if not m_key:
+                continue
+            m_parts = m_key.split('|')
+            max_len = max(len(src_parts), len(m_parts))
+            if max_len == 0:
+                continue
+            common = sum(1 for a, b in zip(src_parts, m_parts) if a == b)
+            sim = common / max_len
+            if sim >= 0.6:  # structure at least 60% similar
+                return {'text': m['text'], 'score': round(m.get('similarity', sim), 3)}
+
+        # Phase 2: Exact structure match from index (may be off-topic)
         exact_indices = self.struct_index.get(src_key, [])
         for idx in exact_indices:
             sent = self.sentences[idx]
             if self._is_length_compatible(src_sent, sent, tolerance=0.5):
-                return {'text': sent, 'score': 1.0}
-        # Return first exact match even if length doesn't match
+                return {'text': sent, 'score': 0.5}  # lower score: structure match only
         if exact_indices:
-            return {'text': self.sentences[exact_indices[0]], 'score': 1.0}
+            return {'text': self.sentences[exact_indices[0]], 'score': 0.4}
 
-        # Fuzzy: find closest structure (off by at most 1-2 elements)
+        # Phase 3: Fuzzy structure match
         best_sent = None
         best_sim = 0
         for struct_key, indices in self.struct_index.items():
@@ -389,9 +408,8 @@ class Humanizer:
                     best_sent = self.sentences[indices[0]]
 
         if best_sent:
-            return {'text': best_sent, 'score': round(best_sim, 3)}
+            return {'text': best_sent, 'score': round(best_sim * 0.5, 3)}  # halved: no semantic relevance
 
-        # Fallback
         if matches:
             return {'text': matches[0]['text'], 'score': 0}
         return {'text': src_sent, 'score': 0}
