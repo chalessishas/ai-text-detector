@@ -12,18 +12,18 @@ echo "Gateway port: $GATEWAY_PORT"
 
 # ── Auto-download model data if missing ──
 
-# v1: Original DeBERTa (72% red team, best available)
-# v3 trained on 83K cross-domain data: 98.7% eval but only 50% red team (worse than v1)
+# v4: DeBERTa retrained on 69K balanced dataset (97.6% eval, RunPod 4090)
+# Note: v1 had 72% red team; v4 has better eval but similar real-world limitations
 MODEL_FILE="detector.tar.gz"
-MODEL_MARKER="$DATA_DIR/models/detector/.v1_restored"
+MODEL_MARKER="$DATA_DIR/models/detector/.v4_restored"
 if [ ! -f "$MODEL_MARKER" ]; then
-    echo "Downloading DeBERTa v1 model..."
+    echo "Downloading DeBERTa v4 model..."
     rm -rf "$DATA_DIR/models/detector"
     mkdir -p "$DATA_DIR/models/detector"
     curl -sL "https://github.com/$GITHUB_REPO/releases/download/$RELEASE_TAG/$MODEL_FILE" \
         | tar xz -C "$DATA_DIR/models/detector/"
     touch "$MODEL_MARKER"
-    echo "DeBERTa v1 model downloaded."
+    echo "DeBERTa v4 model downloaded."
 fi
 
 # FAISS corpus (future: add to GitHub Release or download from cloud storage)
