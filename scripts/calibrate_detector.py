@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Calibrate a perplexity-based AI detector using dataset.jsonl.
+"""Calibrate a perplexity-based AI detector using dataset_v4.jsonl.
 
-Samples N texts per class from dataset.jsonl, computes PPL/ENT/BURST/GLTR
+Samples N texts per class from dataset_v4.jsonl, computes PPL/ENT/BURST/GLTR
 via Qwen3.5-4B (MLX), then finds optimal thresholds via logistic regression.
 
 Outputs:
@@ -30,7 +30,7 @@ from sklearn.metrics import classification_report, accuracy_score
 from sklearn.model_selection import train_test_split
 
 MODEL_ID = "mlx-community/Qwen3.5-4B-4bit"
-DATASET = os.path.join(os.path.dirname(__file__), "..", "dataset.jsonl")
+DATASET = os.path.join(os.path.dirname(__file__), "..", "dataset_v4.jsonl")
 N_PER_CLASS = 100  # samples per class for calibration (keep small for speed)
 
 
@@ -89,7 +89,7 @@ def compute_features(text: str, model, tokenizer) -> dict | None:
 
 
 def load_samples(path: str, n_per_class: int) -> list[dict]:
-    """Load balanced samples from dataset.jsonl. Shuffles before capping."""
+    """Load balanced samples from dataset_v4.jsonl. Shuffles before capping."""
     by_label = {"human": [], "ai": [], "ai_polished": [], "human_polished": []}
     with open(path) as f:
         for line in f:
@@ -120,7 +120,7 @@ def main():
     print(f"  Loaded in {time.time() - t0:.1f}s")
 
     # ── Load samples ─────────────────────────────────────────────────
-    print(f"\nLoading {N_PER_CLASS} samples per class from dataset.jsonl...")
+    print(f"\nLoading {N_PER_CLASS} samples per class from dataset_v4.jsonl...")
     samples = load_samples(DATASET, N_PER_CLASS)
     print(f"  Loaded {len(samples)} samples")
 
