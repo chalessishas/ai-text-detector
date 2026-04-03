@@ -16,7 +16,8 @@ RUN pip install --no-cache-dir \
     spacy \
     sentence-transformers \
     numpy \
-    scikit-learn
+    scikit-learn \
+    llama-cpp-python
 
 # Download spaCy model
 RUN python -m spacy download en_core_web_sm
@@ -28,7 +29,10 @@ COPY scripts/gateway.py scripts/gateway.py
 COPY entrypoint.sh entrypoint.sh
 RUN chmod +x entrypoint.sh
 
-# Data dirs (will be mounted as Railway volume)
+# Copy XGBoost fusion model if available
+COPY models/xgboost_fusion.pkl /app/models/xgboost_fusion.pkl
+
+# Data dirs (will be mounted as volume)
 RUN mkdir -p /data/models/detector /data/corpus
 
 ENV HOST=0.0.0.0
