@@ -1,10 +1,42 @@
 # AI Text X-Ray — 项目状态
 
-> 最后更新: 2026-03-26 05:30
+> 最后更新: 2026-04-03 06:50
 
 ---
 
 ## 最近更新（新的在上面）
+
+### [2026-04-03 06:50] — 检测系统全面修复 + 红队测试 (3 commits)
+
+**问题诊断**：
+- PPL 模型自 3/24 起未加载（Ollama blob hash 失效 → 四路融合降级为 DeBERTa-only → 假阳性）
+- DeBERTa 跨领域 AUROC 0.5-0.6（学模型指纹，不学 AI 通用特征）
+- 8/27 测试失败（含 1 个假阳性 + 多种对抗绕过）
+
+**修复内容**：
+1. **PPL 模型加载重写** — 替换硬编码 Ollama blob SHA256 为动态解析（`ollama show --modelfile`），自动 fallback（qwen3.5:4b → llama3.2:1b）。防止 hash 再次失效
+2. **四路融合恢复** — PPL 恢复后 DeBERTa 假阳性被 PPL+LR 纠正（烘焙文本：100→41 分）
+3. **35 项红队对抗测试** — 覆盖 12 种假阳性场景（学术论文、非母语、日记、食谱等）、7 种对抗绕过、7 种边界情况、3 项回归测试
+4. **Log-rank 检测信号** — 添加 DetectLLM 风格 log-rank 到 API 响应（llama3.2:1b 信号分离度不足，保留作参考）
+5. **XGBoost 融合训练脚本** — `scripts/train_xgboost_fusion.py`，用 GradientBoosting 替代 140 行 if-else（训练中）
+6. **数据集审计** — 13 个 JSONL 确认只有 dataset_v4.jsonl（69K 平衡样本）有效，merged_noised 已损坏
+
+**测试结果**：
+- 原始测试：**26/27 pass**（+2 xfail，从 18/27 提升）
+- 红队测试：**35/35 pass**
+- 合计：**60/62 pass, 2 xfail, 0 fail**
+- E2E Playwright：Landing page ✓, App shell ✓, AI 检测 ✓ (85.6% for standard AI text)
+
+**新增文件**：
+- `tests/test_redteam.py` — 35 项红队对抗测试
+- `scripts/train_xgboost_fusion.py` — 融合模型训练脚本
+- `docs/research/2026-04-03-detection-improvements.md` — 检测改进调研
+- `docs/research/2026-04-03-ai-api-cost-comparison.md` — 云端 PPL 方案对比
+
+**待完成**（需要 GPU / 用户介入）：
+1. Colab DeBERTa v5 对抗重训（notebook 已就绪：`scripts/train_detector_v5_colab.ipynb`，需 GitHub 授权）
+2. XGBoost 融合模型训练完成后重启服务端加载
+3. 清理死数据文件（dataset_merged_noised.jsonl 等）
 
 ### [2026-03-26 05:30] — 自治训练循环完成（7 commits, 4 hr）
 
