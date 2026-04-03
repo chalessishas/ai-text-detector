@@ -379,7 +379,55 @@ def _compute_llama(model, text):
         token_str = token_bytes.decode("utf-8", errors="replace")
         results.append({"token": token_str, "logprob": logprob, "rank": rank, "entropy": entropy})
 
-    return {"tokens": results}
+    # Log-rank detection score (uses already-computed per-token ranks)
+    log_rank = compute_log_rank_score(results)
+
+    out = {"tokens": results}
+    if log_rank:
+        out["log_rank"] = log_rank
+    return out
+
+
+def compute_log_rank_score(tokens):
+    """Log-rank detection metric (DetectLLM, Bao et al. 2023).
+
+    Mean log(rank) of actual tokens under the scoring model.
+    AI text: tokens are highly ranked → low mean_log_rank → high AI probability.
+    Human text: tokens are more varied → high mean_log_rank → low AI probability.
+
+    Uses already-computed per-token ranks from _compute_llama.
+    """
+    if not tokens or len(tokens) < 5:
+        return None
+
+    ranks = [t["rank"] for t in tokens]
+    log_ranks = [math.log(max(r, 1)) for r in ranks]
+
+    mean_lr = float(np.mean(log_ranks))
+    std_lr = float(np.std(log_ranks))
+
+    # Thresholds calibrated for llama3.2:1b:
+    # AI text mean_log_rank: ~0.5-1.5 (tokens in top ranks)
+    # Human text mean_log_rank: ~1.5-3.5 (more varied)
+    if mean_lr < 0.8:
+        ai_prob = 90
+    elif mean_lr < 1.2:
+        ai_prob = 75
+    elif mean_lr < 1.6:
+        ai_prob = 55
+    elif mean_lr < 2.0:
+        ai_prob = 40
+    elif mean_lr < 2.5:
+        ai_prob = 25
+    else:
+        ai_prob = 10
+
+    return {
+        "mean_log_rank": round(mean_lr, 4),
+        "std_log_rank": round(std_lr, 4),
+        "ai_probability": ai_prob,
+        "n_tokens": len(tokens),
+    }
 
 
 def compute_diveye_features(logprobs):
