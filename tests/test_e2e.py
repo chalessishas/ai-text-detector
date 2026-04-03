@@ -108,12 +108,17 @@ class TestWritingCenterAPI:
         assert "tip" in result
 
     def test_guide(self):
-        status, result = _post(f"{FRONTEND}/api/writing-assist", {
-            "action": "guide",
-            "text": "I want to write about climate change",
-            "context": {"messages": []}
-        })
-        assert status == 200, f"guide failed: {result}"
+        # Guide calls DeepSeek API which may rate-limit; retry once
+        for attempt in range(2):
+            status, result = _post(f"{FRONTEND}/api/writing-assist", {
+                "action": "guide",
+                "text": "I want to write about climate change",
+                "context": {"messages": []}
+            }, timeout=30)
+            if status == 200:
+                break
+            import time; time.sleep(3)
+        assert status == 200, f"guide failed after 2 attempts: {result}"
         assert "cards" in result or "type" in result
 
     def test_expand(self):
