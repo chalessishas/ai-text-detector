@@ -127,6 +127,30 @@ def classify_text(tokenizer, model, text):
 
 MLX_MODEL_ID = "mlx-community/Qwen3.5-4B-4bit"
 
+# Ollama models to try, in priority order (best signal first)
+OLLAMA_MODELS = ["qwen3.5:4b", "llama3.2:1b"]
+
+
+def _resolve_ollama_blob(model_name):
+    """Dynamically resolve Ollama model GGUF path via 'ollama show'."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["ollama", "show", model_name, "--modelfile"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return None
+        for line in result.stdout.splitlines():
+            if line.startswith("FROM /"):
+                path = line[5:].strip()
+                if os.path.exists(path):
+                    return path
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
 def load_model():
     """Try MLX qwen3.5:4b first (3x better signal), fall back to llama-cpp."""
     # Try MLX (Apple Silicon, needs mlx_lm)
@@ -142,34 +166,33 @@ def load_model():
     except Exception as e:
         print(f"MLX not available ({e}), trying llama-cpp...", file=sys.stderr)
 
-    # Fallback: llama-cpp — try qwen3:4b first (better signal), then llama3.2:1b
-    qwen3_path = os.path.expanduser(
-        "~/.ollama/models/blobs/sha256-3e4cb14174460404e7a233e531675303b2fbf7749c02f91864fe311ab6344e4f"
-    )
-    llama_path = os.path.expanduser(
-        "~/.ollama/models/blobs/sha256-74701a8c35f6c8d9a4b91f3f3497643001d63e0c7a84e085bed452548fa88d45"
-    )
+    # Fallback: llama-cpp via dynamic Ollama model resolution
+    from llama_cpp import Llama
+
     model_path = os.environ.get("MODEL_PATH", "")
-    if not model_path:
-        if os.path.exists(qwen3_path):
-            model_path = qwen3_path
-            model_name = "qwen3:4b"
-        elif os.path.exists(llama_path):
-            model_path = llama_path
-            model_name = "llama3.2:1b"
-        else:
-            print("No perplexity model found. Token analysis disabled.", file=sys.stderr)
+    if model_path:
+        try:
+            llm = Llama(model_path=model_path, n_ctx=2048, n_threads=4, logits_all=True, verbose=False)
+            print(f"Perplexity model: llama-cpp custom", file=sys.stderr)
+            return ("llama", llm)
+        except Exception as e:
+            print(f"Failed to load custom model: {e}", file=sys.stderr)
             return None
-    else:
-        model_name = "custom"
-    try:
-        from llama_cpp import Llama
-        llm = Llama(model_path=model_path, n_ctx=2048, n_threads=4, logits_all=True, verbose=False)
-        print(f"Perplexity model: llama-cpp {model_name}", file=sys.stderr)
-        return ("llama", llm)
-    except Exception as e:
-        print(f"Failed to load perplexity model: {e}", file=sys.stderr)
-        return None
+
+    for name in OLLAMA_MODELS:
+        resolved = _resolve_ollama_blob(name)
+        if not resolved:
+            continue
+        print(f"Resolved Ollama {name} → {resolved}", file=sys.stderr)
+        try:
+            llm = Llama(model_path=resolved, n_ctx=2048, n_threads=4, logits_all=True, verbose=False)
+            print(f"Perplexity model: llama-cpp {name}", file=sys.stderr)
+            return ("llama", llm)
+        except Exception as e:
+            print(f"llama-cpp can't load {name}: {e}, trying next...", file=sys.stderr)
+
+    print("No perplexity model found. Token analysis disabled.", file=sys.stderr)
+    return None
 
 
 # ── Binoculars (dual-model detection, Hans et al. ICML 2024) ─────────────
@@ -973,86 +996,27 @@ class Handler(BaseHTTPRequestHandler):
                             ratio = ai_signals / total
                             stat_score = int(10 + ratio * 80)  # range: 10-90
 
-                    has_lr = lr_ai != 50  # LR model actually loaded
-
-                    # Consensus override: when 2+ strong signals agree, trust them
-                    all_signals = [deb_ai, ppl_score, stat_score, lr_ai]
-                    if has_bino:
-                        all_signals.append(bino_ai)
-                    strong_ai = sum(1 for s in all_signals if s > 80)
-                    strong_human = sum(1 for s in [100-s for s in all_signals] if s > 80)
-
-                    if has_lr and strong_ai >= 2 and strong_human == 0:
-                        # Multiple signals strongly agree AI — consensus overrides dissent
-                        scores = all_signals
-                        fused = sum(scores) / len(scores)  # simple average when consensus
-                        bino_str = f",bino={bino_ai}" if has_bino else ""
-                        signal_source = f"consensus_ai(deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},lr={lr_ai:.0f}{bino_str})"
-                    elif has_lr and strong_human >= 2 and strong_ai == 0:
-                        scores = [deb_ai, ppl_score, stat_score, lr_ai]
-                        fused = sum(scores) / 4
-                        bino_str = f",bino={bino_ai}" if has_bino else ""
-                        signal_source = f"consensus_human(deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},lr={lr_ai:.0f}{bino_str})"
-                    elif has_lr and lr_ai > 85:
-                        # LR confident AI — trust LR but keep DeBERTa voice
-                        fused = lr_ai * 0.35 + deb_ai * 0.30 + ppl_score * 0.20 + stat_score * 0.15
-                        signal_source = f"lr_confident(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
-                    elif has_lr and lr_ai < 15:
-                        # LR confident human — but don't let LR alone override DeBERTa
-                        if deb_ai > 80 and stat_score > 70:
-                            # DeBERTa AND stat both say AI → don't let LR/PPL dominate
-                            fused = lr_ai * 0.15 + deb_ai * 0.35 + ppl_score * 0.15 + stat_score * 0.35
-                            signal_source = f"deb_stat_override(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
-                        elif deb_ai > 80:
-                            fused = lr_ai * 0.25 + deb_ai * 0.25 + ppl_score * 0.30 + stat_score * 0.20
-                            signal_source = f"lr_confident(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
-                        else:
-                            fused = lr_ai * 0.35 + deb_ai * 0.25 + ppl_score * 0.25 + stat_score * 0.15
-                            signal_source = f"lr_confident(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
-                    elif has_lr:
-                        # Default vote — but handle DeBERTa unreliability
-                        deb_logit_gap = clf_data.get("logit_gap", 5.0)
-                        deb_uncertain = deb_logit_gap < 2.0 or (50 < deb_ai < 75)
-                        if ppl_score >= 70 and lr_ai >= 60 and deb_ai < 20:
-                            # PPL+LR say AI but DeBERTa says human → DeBERTa wrong, demote it
-                            fused = lr_ai * 0.30 + deb_ai * 0.10 + ppl_score * 0.35 + stat_score * 0.25
-                            signal_source = f"ppl_lr_override(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
-                        elif ppl_score <= 30 and lr_ai <= 30 and deb_ai > 80:
-                            # PPL+LR say human but DeBERTa says AI → DeBERTa wrong, demote it
-                            fused = lr_ai * 0.30 + deb_ai * 0.10 + ppl_score * 0.35 + stat_score * 0.25
-                            signal_source = f"ppl_lr_override(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
-                        elif deb_uncertain and ppl_score <= 40 and lr_ai <= 40:
-                            # DeBERTa weakly says AI but PPL+LR lean human → trust PPL+LR
-                            fused = lr_ai * 0.35 + deb_ai * 0.10 + ppl_score * 0.35 + stat_score * 0.20
-                            signal_source = f"deb_uncertain_human(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},gap={deb_logit_gap:.1f})"
-                        elif deb_uncertain:
-                            # DeBERTa uncertain — reduce its weight
-                            fused = lr_ai * 0.30 + deb_ai * 0.15 + ppl_score * 0.30 + stat_score * 0.25
-                            signal_source = f"deb_uncertain(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score},gap={deb_logit_gap:.1f})"
-                        else:
-                            fused = lr_ai * 0.25 + deb_ai * 0.30 + ppl_score * 0.25 + stat_score * 0.20
-                            signal_source = f"vote(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
-                    else:
-                        # No LR model: redistribute weight to DeBERTa + PPL + stats
-                        # When DeBERTa is high but other signals disagree, dampen DeBERTa
-                        deb_weight = 0.40
-                        ppl_weight = 0.35
-                        stat_weight = 0.25
-                        if deb_ai > 80 and ppl_score < 50 and stat_score < 50:
-                            # DeBERTa says AI but PPL+stats say human → conflict, trust PPL+stats more
-                            deb_weight = 0.25
-                            ppl_weight = 0.40
-                            stat_weight = 0.35
-                        elif deb_ai > 80 and (ppl_score < 50 or stat_score < 40):
-                            # Partial disagreement → moderate dampening
-                            deb_weight = 0.30
-                            ppl_weight = 0.40
-                            stat_weight = 0.30
-                        fused = deb_ai * deb_weight + ppl_score * ppl_weight + stat_score * stat_weight
-                        signal_source = f"vote_no_lr(deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
-
                     ppl_ai_signal = ppl_score >= 80
                     ppl_human_signal = ppl_score <= 20
+
+                    # ── Fusion: XGBoost meta-learner (replaces 140-line if-else) ──
+                    # Falls back to simple weighted average if XGBoost not available
+                    xgb_model = self.server.xgb_fusion if hasattr(self.server, 'xgb_fusion') else None
+                    if xgb_model is not None:
+                        xgb_features = np.array([[deb_ai, ppl_score, lr_ai, stat_score,
+                                                   ppl_val, top10, mean_ent]])
+                        xgb_prob = xgb_model.predict_proba(xgb_features)[0][1]
+                        fused = round(float(xgb_prob) * 100, 1)
+                        signal_source = f"xgboost(deb={deb_ai:.0f},ppl={ppl_score},lr={lr_ai:.0f},stat={stat_score},prob={xgb_prob:.3f})"
+                    else:
+                        # Fallback: simple weighted average (no hand-tuned if-else)
+                        has_lr = lr_ai != 50
+                        if has_lr:
+                            fused = lr_ai * 0.30 + deb_ai * 0.25 + ppl_score * 0.25 + stat_score * 0.20
+                            signal_source = f"fallback_vote(lr={lr_ai:.0f},deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
+                        else:
+                            fused = deb_ai * 0.35 + ppl_score * 0.35 + stat_score * 0.30
+                            signal_source = f"fallback_no_lr(deb={deb_ai:.0f},ppl={ppl_score},stat={stat_score})"
                 if word_count < 50:
                     # Too short for reliable detection — force uncertain
                     fused = 50
@@ -1157,15 +1121,36 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def load_xgboost_fusion():
+    """Load XGBoost meta-learner from models/xgboost_fusion.pkl if available."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    xgb_path = os.path.join(script_dir, "..", "models", "xgboost_fusion.pkl")
+    if not os.path.exists(xgb_path):
+        print("XGBoost fusion not found — using fallback weighted average.", file=sys.stderr)
+        return None
+    try:
+        import pickle
+        with open(xgb_path, "rb") as f:
+            xgb_data = pickle.load(f)
+        model = xgb_data["model"]
+        acc = xgb_data.get("accuracy", "?")
+        print(f"XGBoost fusion loaded (accuracy: {acc})", file=sys.stderr)
+        return model
+    except Exception as e:
+        print(f"Failed to load XGBoost: {e}", file=sys.stderr)
+        return None
+
+
 class PerplexityServer(HTTPServer):
     allow_reuse_address = True
 
-    def __init__(self, addr, handler, model_tuple, classifier_tokenizer=None, classifier_model=None, binoculars=None):
+    def __init__(self, addr, handler, model_tuple, classifier_tokenizer=None, classifier_model=None, binoculars=None, xgb_fusion=None):
         super().__init__(addr, handler)
         self.model_tuple = model_tuple
         self.classifier_tokenizer = classifier_tokenizer
         self.classifier_model = classifier_model
         self.binoculars = binoculars
+        self.xgb_fusion = xgb_fusion
 
 
 if __name__ == "__main__":
@@ -1177,8 +1162,10 @@ if __name__ == "__main__":
     clf_tokenizer, clf_model = load_classifier()
     print("Loading Binoculars...", file=sys.stderr)
     binoculars = load_binoculars()
+    print("Loading XGBoost fusion...", file=sys.stderr)
+    xgb_fusion = load_xgboost_fusion()
     print(f"Server running at http://{host}:{port}", file=sys.stderr)
-    server = PerplexityServer((host, port), Handler, model_tuple, clf_tokenizer, clf_model, binoculars)
+    server = PerplexityServer((host, port), Handler, model_tuple, clf_tokenizer, clf_model, binoculars, xgb_fusion)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
