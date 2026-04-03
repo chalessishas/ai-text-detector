@@ -1,10 +1,30 @@
 # AI Text X-Ray — 项目状态
 
-> 最后更新: 2026-04-03 06:50
+> 最后更新: 2026-04-03 08:00
 
 ---
 
 ## 最近更新（新的在上面）
+
+### [2026-04-03 08:00] — XGBoost v3 部署 + Humanizer 修复 (追加)
+
+**XGBoost 融合 meta-learner 三轮迭代**：
+| 版本 | 数据 | CV Accuracy | DeBERTa 权重 | 回归 | 状态 |
+|------|------|-------------|-------------|------|------|
+| v1 | dataset_v4 (in-domain) | 100% | 100% | N/A | 过拟合，已删 |
+| v2 | 48 OOD samples | 89.8% | 26% | 2 个 | 未部署 |
+| **v3** | **112 OOD samples** | **94.6%** | **73%** | **0 个** | **已部署** ✓ |
+
+- Feature weights: DeBERTa 73%, top10 14%, LR 4%, PPL 4%, stat 2%
+- 关键学习：XGBoost 训练必须用 OOD 数据（DeBERTa 训练集之外的文本），否则退化为 DeBERTa-only
+
+**Humanizer structure 方法修复**：
+- Bug: score 永远 1.0，返回不相关文本（纯句法匹配）
+- Fix: 优先在 FAISS 语义匹配中找结构兼容的，纯结构匹配 score 降到 0.5
+
+**其他**：
+- `calibrate_detector.py` 引用已删除的 dataset.jsonl → 改为 dataset_v4.jsonl
+- 删除 dataset_augmented.jsonl + dataset_raid_extract.jsonl（已被 v4 消费）
 
 ### [2026-04-03 06:50] — 检测系统全面修复 + 红队测试 (3 commits)
 
