@@ -98,13 +98,17 @@ ai-text-detector/
 8. ~~**WritingCenter always shows welcome**~~ — RESOLVED: current code starts at "workbench" phase directly, no welcome screen.
 9. **FAISS index + jsonl = 9GB+ total** — Not suitable for serverless, needs persistent disk.
 10. **Tiptap v3 API instability** — Plugin API still evolving, custom extensions may need updates.
-11. **llama-cpp-python doesn't support qwen3.5** — Use MLX (`/opt/anaconda3/bin/python3.13` + `mlx-lm 0.31.1`). Python 3.9 can't install mlx>=0.30.4.
+11. ~~**llama-cpp-python doesn't support qwen3.5**~~ — RESOLVED: dynamic Ollama model resolution falls back to llama3.2:1b automatically.
 12. **tokenizer.vocab_size != model vocab** — Qwen3.5 tokenizer reports 248044 but model has 248320. Use `model(mx.array([[1]])).shape[-1]`.
 13. **CoPA contrastive decoding doesn't fool DeBERTa** — 0/6 pass rate. Only changes surface stats, deep classifier catches it. StealthRL (GRPO LoRA) is the correct approach.
 14. **PPL human ranges are model-specific** — Don't copy from literature. Calibrate on dataset.jsonl with the same model used for detection.
 15. **DeBERTa cross-domain AUROC is 0.5-0.6** — Essentially random on unseen domains. Learns model fingerprints, not universal AI patterns. See docs/research/2026-03-25-14.md.
 16. **LR model must match PPL model** — Switching PPL model (e.g. llama3.2:1b → qwen3:4b) requires retraining LR via `scripts/train_lr_local.py`.
-17. **Fusion logic is 140+ lines of if-else** — Rule engineering has reached its ceiling. Next improvement requires model-level changes, not more rules.
+17. ~~**Fusion logic is 140+ lines of if-else**~~ — RESOLVED: refactored to simple weighted average with XGBoost meta-learner path. Old if-else removed.
+18. **Ollama blob hashes are fragile** — Never hardcode Ollama model paths. Use `_resolve_ollama_blob()` which calls `ollama show --modelfile` to dynamically resolve. Hash changes when Ollama updates.
+19. **PPL model must be loaded for reliable detection** — Without PPL, fusion degrades to DeBERTa-only which has 0.5-0.6 AUROC on unseen domains. Server should check PPL availability on startup and warn.
+20. **dataset_merged_noised.jsonl is corrupted** — 10% of words replaced with random junk strings. Do not use for training. Only dataset_v4.jsonl is clean and balanced.
+21. **Log-rank signal weak with llama3.2:1b** — Mean log-rank shows no separation (AI ~1.04, human ~1.05). Needs ≥8B model for useful signal. Kept in API as informational only.
 
 ## Environment Setup
 
