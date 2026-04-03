@@ -74,18 +74,53 @@ def extract_features(result):
     else:
         ppl_score = 50
 
-    # Get stat_score from fused metadata (if available)
-    # Otherwise use neutral
+    # Extract stat_score from signal_source string
+    fused = result.get("fused", {})
+    signal_src = fused.get("signal_source", "")
     stat_score = 50
+    if "stat=" in signal_src:
+        try:
+            stat_score = int(signal_src.split("stat=")[1].split(")")[0].split(",")[0])
+        except (ValueError, IndexError):
+            pass
 
     return [deb_ai, ppl_score, lr_ai, stat_score, ppl_val, top10, mean_ent]
 
 
 def load_dataset(max_samples=500):
-    """Load balanced samples from dataset files."""
+    """Load balanced samples from dataset files.
+
+    Prioritizes OOD (out-of-domain) data to avoid DeBERTa overfitting.
+    Falls back to main dataset if OOD not available.
+    """
     samples = {"human": [], "ai": []}
 
-    # Try dataset_v4 first, then v3
+    # Prefer OOD data (texts NOT in DeBERTa training set)
+    ood_path = os.path.join(PROJECT_DIR, "data_ood_xgboost.jsonl")
+    if os.path.exists(ood_path):
+        print(f"Loading OOD data from data_ood_xgboost.jsonl...")
+        with open(ood_path) as f:
+            for line in f:
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                text = obj.get("text", "")
+                label = obj.get("label")
+                if len(text) < 100:
+                    continue
+                if label in (0, "human"):
+                    samples["human"].append(text)
+                elif label in (1, "ai"):
+                    samples["ai"].append(text)
+        if len(samples["human"]) >= 20 and len(samples["ai"]) >= 20:
+            n = min(len(samples["human"]), len(samples["ai"]), max_samples // 2)
+            random.seed(42)
+            return random.sample(samples["human"], n), random.sample(samples["ai"], n)
+        print(f"  OOD data insufficient ({len(samples['human'])} human, {len(samples['ai'])} AI), falling back...")
+        samples = {"human": [], "ai": []}
+
+    # Fallback: main dataset
     for name in ["dataset_v4.jsonl", "dataset_v3.jsonl", "dataset.jsonl"]:
         path = os.path.join(PROJECT_DIR, name)
         if os.path.exists(path):
