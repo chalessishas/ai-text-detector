@@ -46,13 +46,27 @@ def compute_ai_vocab(text):
 
 # ── DeBERTa classifier (optional) ──────────────────────────────────────────
 
-def load_classifier():
-    """Load DeBERTa classifier from models/detector/ if available."""
+def _resolve_classifier_path():
+    """Resolve classifier model directory: CLASSIFIER_PATH env > v5 > v4 > symlink."""
+    env_path = os.environ.get("CLASSIFIER_PATH")
+    if env_path:
+        return env_path
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    model_dir = os.environ.get(
-        "CLASSIFIER_PATH",
-        os.path.join(script_dir, "..", "models", "detector"),
-    )
+    models_root = os.path.join(script_dir, "..", "models")
+
+    # Prefer v5 (adversarial-trained), fall back to v4, then generic symlink
+    for candidate in ("detector_v5", "detector_v4", "detector"):
+        path = os.path.join(models_root, candidate)
+        if os.path.isdir(path):
+            return path
+
+    return os.path.join(models_root, "detector")
+
+
+def load_classifier():
+    """Load DeBERTa classifier. Priority: CLASSIFIER_PATH env > v5 > v4 > symlink."""
+    model_dir = _resolve_classifier_path()
 
     if not os.path.isdir(model_dir):
         print(f"Classifier not found at {model_dir} -- running without it.", file=sys.stderr)
@@ -64,11 +78,12 @@ def load_classifier():
 
         tokenizer = AutoTokenizer.from_pretrained(model_dir)
         model = AutoModelForSequenceClassification.from_pretrained(model_dir)
-        model.float()
+        model.float()  # DeBERTa fp16 explodes — must use fp32
         model.eval()
         if torch.cuda.is_available():
             model = model.cuda()
-        print(f"Classifier loaded from {model_dir}", file=sys.stderr)
+        version = os.path.basename(os.path.realpath(model_dir))
+        print(f"Classifier loaded from {model_dir} ({version})", file=sys.stderr)
         return tokenizer, model
     except Exception as e:
         print(f"Failed to load classifier: {e}", file=sys.stderr)

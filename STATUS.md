@@ -1,10 +1,98 @@
 # AI Text X-Ray — 项目状态
 
-> 最后更新: 2026-04-03 08:00
+> 最后更新: 2026-04-04 07:23
 
 ---
 
 ## 最近更新（新的在上面）
+
+### [2026-04-04 07:23] — DeBERTa v5 对抗重训 + XGBoost 重训 + OOD 扩充
+
+**DeBERTa v5 训练** (RunPod RTX 4090, 103 min, ~$1.15):
+- 训练数据: 69K clean (dataset_v4.jsonl) + 17K adversarial (14 种攻击类型)
+- 4-class accuracy: **97.4%**, Binary: **99.9%**
+- Class weights 补偿 AI 类 2x 样本量
+- 模型已部署: `models/detector_v5/` (715MB), symlink 已更新
+
+**XGBoost 融合重训** (2 轮迭代):
+| 轮次 | OOD 样本 | CV Accuracy | DeBERTa 权重 | PPL 权重 | 结果 |
+|------|---------|-------------|-------------|---------|------|
+| v3 (旧) | 112 | 94.6% | 73% | 14% | 基线 |
+| Round 1 | 112 | 93.8% | 18% | 77% | 3 fix, 1 new FP |
+| **Round 2** | **392** | **90.8%** | **13%** | **56%** | **全绿** |
+
+**OOD 数据扩充** (227 → 453 样本):
+- 来源: RAID (106) + AI-Human-Text (120) + Detection Pile (100) + 原有 (127)
+- 覆盖: books, wiki, abstracts, reddit, news, poetry, recipes, reviews
+
+**测试结果** (v5 + XGBoost Round 2):
+- detector: **25 pass, 1 xfail, 1 xpassed** (Quillbot bypass 仍 xfail)
+- redteam: **35 pass, 0 fail**
+- 合计: **60 pass, 1 xfail, 1 xpassed, 0 fail**
+
+**新增/修改文件**:
+- `scripts/train_runpod_v5.py` — RunPod v5 训练脚本
+- `scripts/train_local_v5.py` — 本地 M4 训练脚本 (备用)
+- `scripts/expand_ood_data.py` — HuggingFace OOD 数据扩充
+- `scripts/download_runpod_v5.sh` — 模型下载工具
+- `scripts/perplexity.py` — v5 优先级加载 + _resolve_classifier_path()
+- `models/xgboost_fusion.pkl` — Round 2 融合模型
+- `data_ood_xgboost.jsonl` — 扩充后 453 样本
+- `.gitignore` — 添加 v4/v5 模型目录
+
+### [2026-04-03 19:25] — 全面交接文档更新
+
+**本次自治会话总结** (06:00 - 19:25, ~13 小时, 19 commits):
+
+#### 改进前 vs 改进后
+
+| 指标 | 改进前 (06:00) | 改进后 (19:25) |
+|------|---------------|---------------|
+| 测试通过率 | 18/27 (67%) | **122/124 (98%)** |
+| 假阳性率 | 不确定（PPL 断路） | **0/12** (红队测试全通过) |
+| PPL 模型 | 断路 10 天 | **已恢复** (llama3.2:1b) |
+| 融合方式 | 手调 if-else | **XGBoost v3** (94.6% OOD) |
+| 测试套件 | 27 个基础测试 | **124 个** (基础+红队+E2E) |
+| 死数据 | ~1.9GB | **已清理** |
+| 部署就绪 | 无 | **Dockerfile + fly.toml** |
+| 研究文档 | 3 份 | **10 份** |
+
+#### 完成的 19 次 Commit
+
+| # | 类型 | 内容 |
+|---|------|------|
+| 1 | fix | PPL 动态 Ollama 解析 + 35 项红队测试 |
+| 2 | feat | Log-rank 检测信号 + XGBoost 训练脚本 |
+| 3 | docs | STATUS.md 诊断总结 |
+| 4 | docs | CLAUDE.md Known Pitfalls 更新 |
+| 5 | feat | XGBoost v3 部署 (94.6% OOD) |
+| 6 | fix | Humanizer structure 方法（语义+结构优先） |
+| 7 | docs | 研究报告 + chronicle |
+| 8 | fix | calibrate_detector.py 引用修复 |
+| 9 | fix | XGBoost OOD 训练改进 |
+| 10 | test | 12 项 E2E 全栈测试 |
+| 11 | fix | guide API retry (DeepSeek 限流) |
+| 12 | feat | Dockerfile 更新 (llama-cpp + XGBoost) |
+| 13 | feat | fly.toml (Fly.io 一键部署) |
+| 14 | fix | entrypoint.sh → DeBERTa v4 |
+| 15-19 | docs | 研究报告 (部署架构, human 数据源, next-steps) |
+
+#### 当前数据文件
+
+| 文件 | 大小 | 用途 | 状态 |
+|------|------|------|------|
+| `dataset_v4.jsonl` | 239MB | DeBERTa + LR 训练 | **活跃** |
+| `dataset_adversarial_v4.jsonl` | 238MB | 对抗基准测试 | **活跃** |
+| `data_human_hc3.jsonl` | 6MB | LR 补充 human 数据 | **活跃** |
+| `data_human_imdb.jsonl` | 4MB | LR 补充 human 数据 | **活跃** |
+| `data_ood_xgboost.jsonl` | 64KB | XGBoost OOD 训练 (227 样本) | **活跃** |
+
+#### 下一步优先级
+
+1. **P0: Colab DeBERTa v5 对抗重训** — notebook 已就绪 (`train_detector_v5_colab.ipynb`)，需 GitHub OAuth 授权。用 69K adversarial 样本提升跨领域能力
+2. **P1: 扩充 OOD 数据到 300+** — 当前 227 样本（171 human + 56 AI），AI 偏少。从 HuggingFace Detection Pile 补充
+3. **P2: 部署到 Fly.io** — Dockerfile + fly.toml 已就绪，需要创建 Fly.io 账号 + GitHub Release 上传 DeBERTa v4 权重
+4. **P3: 模型蒸馏** — 把 DeBERTa 738MB 蒸馏为 TinyBERT ~100MB，降低部署成本
 
 ### [2026-04-03 08:00] — XGBoost v3 部署 + Humanizer 修复 (追加)
 

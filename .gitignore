@@ -45,11 +45,14 @@ next-env.d.ts
 *.jsonl
 *.jsonl.bak.*
 
-# trained models (download from Google Drive)
-/models/detector/
+# trained models (download from Google Drive / RunPod)
+/models/detector
+/models/detector_v1_backup/
 /models/detector_v2/
 /models/detector_v3/
 /models/detector_v3_old/
+/models/detector_v4/
+/models/detector_v5/
 /models/desklib_cache/
 /models/calibration.json
 /models/perplexity_lr.pkl
