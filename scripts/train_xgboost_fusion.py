@@ -44,10 +44,13 @@ def analyze(text, retries=3):
 
 
 def extract_features(result):
-    """Extract the 7 features used by XGBoost fusion."""
+    """Extract 6 features for XGBoost fusion.
+
+    Removed hand-discretized ppl_score (was redundant with ppl_val + top10).
+    XGBoost learns better splits on continuous features directly.
+    """
     clf = result.get("classification", {})
     ppl_stats = result.get("perplexity_stats") or {}
-    fused = result.get("fused", {})
 
     deb_ai = clf.get("ai_score", 50)
     ppl_val = ppl_stats.get("perplexity")
@@ -57,22 +60,6 @@ def extract_features(result):
 
     if ppl_val is None:
         return None  # PPL not computed, skip
-
-    # Reconstruct ppl_score from the fusion logic
-    if ppl_val < 6 and top10 > 88:
-        ppl_score = 95
-    elif ppl_val < 8 and top10 > 85:
-        ppl_score = 80
-    elif ppl_val > 25 and top10 < 75:
-        ppl_score = 10
-    elif ppl_val > 18 and top10 < 80:
-        ppl_score = 20
-    elif ppl_val > 12:
-        ppl_score = 35
-    elif ppl_val < 10 and top10 > 82:
-        ppl_score = 65
-    else:
-        ppl_score = 50
 
     # Extract stat_score from signal_source string
     fused = result.get("fused", {})
@@ -84,7 +71,7 @@ def extract_features(result):
         except (ValueError, IndexError):
             pass
 
-    return [deb_ai, ppl_score, lr_ai, stat_score, ppl_val, top10, mean_ent]
+    return [deb_ai, lr_ai, stat_score, ppl_val, top10, mean_ent]
 
 
 def load_dataset(max_samples=500):
@@ -233,7 +220,7 @@ def main():
     model.fit(X, y)
 
     # Feature importance
-    feature_names = ["deb_ai", "ppl_score", "lr_ai", "stat_score", "ppl_val", "top10", "mean_ent"]
+    feature_names = ["deb_ai", "lr_ai", "stat_score", "ppl_val", "top10", "mean_ent"]
     importances = model.feature_importances_
     print(f"\nFeature importances:")
     for name, imp in sorted(zip(feature_names, importances), key=lambda x: -x[1]):

@@ -1,6 +1,21 @@
 # AI Text X-Ray — 项目状态
 
-> 最后更新: 2026-04-05 08:09
+> 最后更新: 2026-04-05 08:52
+
+---
+
+## ✅ 进展 (2026-04-05 opus-0405f)
+
+### 本次修复
+1. **XGBoost 特征去冗余**：移除手工离散化的 `ppl_score`（7→6 特征），CV 88.0%（vs 旧 88.5%），零回归
+   - 新特征重要性：top10 52.7%, deb_ai 12.8%, stat_score 10.2%, ppl_val 9.8%, lr_ai 8.2%, mean_ent 6.2%
+2. **build_dataset_v6.py 全面修复**：从 15/49 源通过 → **46/46 全通过**，可达 718K（目标 600K）
+   - 修复 12 个字段名错误（case-sensitive: text→TEXT, s→line, etc.）
+   - 替换 13 个 script-based 数据集为 Parquet 版本
+   - 替换 6 个 gated/missing 数据集
+   - 添加 `--dry-run` 模式（先验证再收集，避免浪费 RunPod 时间）
+3. **确认温度 T=2.0 正确**：是 post-hoc calibration（Guo et al. 2017），不是 bug
+4. **测试全绿**：60 pass / 2 xfail / 0 fail
 
 ---
 
@@ -23,16 +38,19 @@
 4. 数据集扩到 1M（600K human + 300K AI + 100K adversarial）
 5. human:adversarial 比例 6:1（不再 1:1）
 
-### 数据集构建卡住了
+### 数据集构建 ✅ 已修复 (opus-0405f)
 
-**问题**：49 个 HF 数据源有 24 个因为 `Dataset scripts are no longer supported` 错误完全失败。已收集的数据：
-- C4: 300K ✓（但全是 web 文本，题材不够多样）
-- OpenWebText: ~100K ✓
-- 其他成功的 8 个源: ~86K
-- **题材覆盖不够**：缺法律、医学临床、诗歌、剧本、宗教、哲学、教育教材等
+**修复前**：49 个 HF 数据源仅 15 个可用（230K 可达）
+**修复后**：46/46 全通过（718K 可达，目标 600K）
 
-**解决方向**：
-1. 对失败的数据集，找替代版本或直接下载 raw data
+**修复内容**：
+- 12 个字段名错误（case-sensitive: text→TEXT, s→line, body, Cover Letter 等）
+- 13 个 script-based 数据集替换为 Parquet 版本
+- 6 个 gated/missing/broken 数据集替换
+- 添加 `--dry-run` 模式验证所有源
+
+**下一步**：
+1. 在 RunPod 上执行 `python3 build_dataset_v6.py --part human` 收集 600K 人类文本
 2. 在 pod 上有个测试脚本 `/workspace/test_all_sources.py` 正在测 36 个数据源的可用性
 3. 确认能用的源后，按**题材配额**分配（每个题材至少 10K），不是按数据集大小
 

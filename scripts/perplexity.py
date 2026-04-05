@@ -1079,11 +1079,11 @@ class Handler(BaseHTTPRequestHandler):
                     # Falls back to simple weighted average if XGBoost not available
                     xgb_model = self.server.xgb_fusion if hasattr(self.server, 'xgb_fusion') else None
                     if xgb_model is not None:
-                        xgb_features = np.array([[deb_ai, ppl_score, lr_ai, stat_score,
+                        xgb_features = np.array([[deb_ai, lr_ai, stat_score,
                                                    ppl_val, top10, mean_ent]])
                         xgb_prob = xgb_model.predict_proba(xgb_features)[0][1]
                         fused = round(float(xgb_prob) * 100, 1)
-                        signal_source = f"xgboost(deb={deb_ai:.0f},ppl={ppl_score},lr={lr_ai:.0f},stat={stat_score},prob={xgb_prob:.3f})"
+                        signal_source = f"xgboost(deb={deb_ai:.0f},lr={lr_ai:.0f},stat={stat_score},ppl={ppl_val:.1f},top10={top10:.0f},prob={xgb_prob:.3f})"
                     else:
                         # Fallback: simple weighted average (no hand-tuned if-else)
                         has_lr = lr_ai != 50

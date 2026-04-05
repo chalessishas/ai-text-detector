@@ -95,11 +95,11 @@ ADV_AVG_OUTPUT_TOKENS = 400
 HUMAN_SOURCES = [
     # --- Daily Communication ---
     {
-        "name": "daily_dialog",
-        "hf_path": "li2017dailydialog/daily_dialog",
+        "name": "yahoo_answers",
+        "hf_path": "community-datasets/yahoo_answers_topics",
         "hf_name": None,
-        "text_field": "dialog",
-        "domain": "chat",
+        "text_field": "best_answer",
+        "domain": "qa",
         "target": 10_000,
         "split": "train",
     },
@@ -107,19 +107,19 @@ HUMAN_SOURCES = [
         "name": "enron_emails",
         "hf_path": "corbt/enron-emails",
         "hf_name": None,
-        "text_field": "text",
+        "text_field": "body",
         "domain": "email",
         "target": 30_000,
         "split": "train",
     },
     {
-        "name": "pushshift_reddit",
-        "hf_path": "fddemarco/pushshift-reddit",
-        "hf_name": None,
-        "text_field": "selftext",
-        "domain": "social_media",
+        "name": "cnn_news_extra",
+        "hf_path": "abisee/cnn_dailymail",
+        "hf_name": "3.0.0",
+        "text_field": "article",
+        "domain": "news",
         "target": 30_000,
-        "split": "train",
+        "split": "test",
     },
     {
         "name": "openwebtext",
@@ -143,7 +143,7 @@ HUMAN_SOURCES = [
     # --- Creative Writing ---
     {
         "name": "pg19_literature",
-        "hf_path": "deepmind/pg19",
+        "hf_path": "emozilla/pg19",
         "hf_name": None,
         "text_field": "text",
         "domain": "literature",
@@ -154,7 +154,7 @@ HUMAN_SOURCES = [
         "name": "gutenberg_english",
         "hf_path": "sedthh/gutenberg_english",
         "hf_name": None,
-        "text_field": "text",
+        "text_field": "TEXT",
         "domain": "literature",
         "target": 15_000,
         "split": "train",
@@ -163,7 +163,7 @@ HUMAN_SOURCES = [
         "name": "gutenberg_poetry",
         "hf_path": "biglam/gutenberg-poetry-corpus",
         "hf_name": None,
-        "text_field": "s",
+        "text_field": "line",
         "domain": "poetry",
         "target": 10_000,
         "split": "train",
@@ -190,11 +190,11 @@ HUMAN_SOURCES = [
         "min_words_override": 30,
     },
     {
-        "name": "blog_authorship",
-        "hf_path": "barilan/blog_authorship_corpus",
+        "name": "squad_passages",
+        "hf_path": "rajpurkar/squad",
         "hf_name": None,
-        "text_field": "text",
-        "domain": "blog_diary",
+        "text_field": "context",
+        "domain": "encyclopedia",
         "target": 20_000,
         "split": "train",
     },
@@ -202,7 +202,7 @@ HUMAN_SOURCES = [
         "name": "ivypanda_essays",
         "hf_path": "qwedsacf/ivypanda-essays",
         "hf_name": None,
-        "text_field": "text",
+        "text_field": "TEXT",
         "domain": "creative_nonfiction",
         "target": 10_000,
         "split": "train",
@@ -210,10 +210,10 @@ HUMAN_SOURCES = [
 
     # --- Academic Writing ---
     {
-        "name": "asap_student_essays",
-        "hf_path": "TasfiaS/ASAP-AES",
+        "name": "persuade_student_essays",
+        "hf_path": "ChristophSchuhmann/essays-with-instructions",
         "hf_name": None,
-        "text_field": "essay",
+        "text_field": "titles",
         "domain": "student_essay",
         "target": 10_000,
         "split": "train",
@@ -228,21 +228,12 @@ HUMAN_SOURCES = [
         "split": "train",
     },
     {
-        "name": "scientific_papers_arxiv",
-        "hf_path": "armanc/scientific_papers",
-        "hf_name": "arxiv",
-        "text_field": "article",
-        "domain": "academic",
-        "target": 20_000,
-        "split": "train",
-    },
-    {
-        "name": "scientific_papers_pubmed",
-        "hf_path": "armanc/scientific_papers",
-        "hf_name": "pubmed",
+        "name": "pubmed_summarization",
+        "hf_path": "ccdv/pubmed-summarization",
+        "hf_name": None,
         "text_field": "article",
         "domain": "medical_academic",
-        "target": 15_000,
+        "target": 35_000,
         "split": "train",
     },
 
@@ -257,17 +248,17 @@ HUMAN_SOURCES = [
         "split": "train",
     },
     {
-        "name": "newsroom",
-        "hf_path": "lil-lab/newsroom",
+        "name": "xsum_news",
+        "hf_path": "EdinburghNLP/xsum",
         "hf_name": None,
-        "text_field": "text",
+        "text_field": "document",
         "domain": "news_longform",
         "target": 20_000,
         "split": "train",
     },
     {
         "name": "news_category_huffpost",
-        "hf_path": "Fraser/news-category-dataset",
+        "hf_path": "heegyu/news-category-dataset",
         "hf_name": None,
         "text_field": "short_description",
         "domain": "news_headline",
@@ -285,14 +276,13 @@ HUMAN_SOURCES = [
         "split": "train",
     },
     {
-        "name": "conversational_weather",
-        "hf_path": "GEM/conversational_weather",
-        "hf_name": None,
-        "text_field": "user_query",
-        "domain": "weather",
-        "target": 2_000,
+        "name": "c4_diverse",
+        "hf_path": "allenai/c4",
+        "hf_name": "en",
+        "text_field": "text",
+        "domain": "web_diverse",
+        "target": 50_000,
         "split": "train",
-        "min_words_override": 10,
     },
 
     # --- Business / Professional ---
@@ -300,29 +290,28 @@ HUMAN_SOURCES = [
         "name": "product_descriptions_ads",
         "hf_path": "llm-wizard/Product-Descriptions-and-Ads",
         "hf_name": None,
-        "text_field": "text",
+        "text_field": "description",
         "domain": "marketing",
         "target": 10_000,
         "split": "train",
     },
     {
-        "name": "amazon_product_desc",
-        "hf_path": "Ateeqq/Amazon-Product-Description",
+        "name": "imdb_reviews",
+        "hf_path": "stanfordnlp/imdb",
         "hf_name": None,
-        "text_field": "description",
-        "domain": "product_description",
+        "text_field": "text",
+        "domain": "movie_review",
         "target": 15_000,
         "split": "train",
     },
     {
-        "name": "amazon_reviews",
-        "hf_path": "McAuley-Lab/Amazon-Reviews-2023",
-        "hf_name": "raw_review_All_Beauty",
+        "name": "imdb_reviews_extra",
+        "hf_path": "stanfordnlp/imdb",
+        "hf_name": None,
         "text_field": "text",
         "domain": "reviews",
         "target": 20_000,
-        "split": "full",
-        "trust_remote_code": True,
+        "split": "unsupervised",
     },
     {
         "name": "yelp_reviews",
@@ -337,7 +326,7 @@ HUMAN_SOURCES = [
         "name": "cover_letters",
         "hf_path": "ShashiVish/cover-letter-dataset",
         "hf_name": None,
-        "text_field": "text",
+        "text_field": "Cover Letter",
         "domain": "cover_letter",
         "target": 5_000,
         "split": "train",
@@ -355,7 +344,7 @@ HUMAN_SOURCES = [
         "name": "meeting_transcripts",
         "hf_path": "lytang/MeetingBank-transcript",
         "hf_name": None,
-        "text_field": "transcript",
+        "text_field": "source",
         "domain": "meeting",
         "target": 5_000,
         "split": "train",
@@ -372,29 +361,20 @@ HUMAN_SOURCES = [
 
     # --- Legal / Government ---
     {
-        "name": "pile_of_law_contracts",
-        "hf_path": "pile-of-law/pile-of-law",
-        "hf_name": "atticus_contracts",
+        "name": "ag_news_extra",
+        "hf_path": "fancyzhx/ag_news",
+        "hf_name": None,
         "text_field": "text",
-        "domain": "legal_contract",
-        "target": 10_000,
-        "split": "train",
+        "domain": "news_brief",
+        "target": 15_000,
+        "split": "test",
     },
     {
-        "name": "pile_of_law_court",
-        "hf_path": "pile-of-law/pile-of-law",
-        "hf_name": "courtlistener_opinions",
-        "text_field": "text",
-        "domain": "legal_court",
-        "target": 10_000,
-        "split": "train",
-    },
-    {
-        "name": "pile_of_law_gov",
-        "hf_path": "pile-of-law/pile-of-law",
-        "hf_name": "federal_register",
-        "text_field": "text",
-        "domain": "government",
+        "name": "booksum",
+        "hf_path": "kmfoda/booksum",
+        "hf_name": None,
+        "text_field": "chapter",
+        "domain": "literature_summary",
         "target": 10_000,
         "split": "train",
     },
@@ -402,30 +382,31 @@ HUMAN_SOURCES = [
         "name": "congressional_speeches",
         "hf_path": "Eugleo/us-congressional-speeches",
         "hf_name": None,
-        "text_field": "speech",
+        "text_field": "text",
         "domain": "political_speech",
         "target": 10_000,
         "split": "train",
     },
     {
-        "name": "hupd_patents",
-        "hf_path": "HUPD/hupd",
+        "name": "squad_extra",
+        "hf_path": "rajpurkar/squad",
         "hf_name": None,
-        "text_field": "abstract",
-        "domain": "patent",
+        "text_field": "context",
+        "domain": "encyclopedia",
         "target": 15_000,
-        "split": "train",
+        "split": "validation",
     },
 
     # --- Medical / Health ---
     {
-        "name": "pubmed_abstracts",
-        "hf_path": "ncbi/pubmed",
+        "name": "medical_meadow",
+        "hf_path": "medalpaca/medical_meadow_medical_flashcards",
         "hf_name": None,
-        "text_field": "MedlineCitation.Article.Abstract.AbstractText",
+        "text_field": "output",
         "domain": "medical",
-        "target": 15_000,
+        "target": 10_000,
         "split": "train",
+        "min_words_override": 30,
     },
     {
         "name": "clinical_trials",
@@ -446,13 +427,13 @@ HUMAN_SOURCES = [
         "split": "train",
     },
     {
-        "name": "med_dataset",
-        "hf_path": "Med-dataset/Med_Dataset",
+        "name": "yelp_extra",
+        "hf_path": "Yelp/yelp_review_full",
         "hf_name": None,
         "text_field": "text",
-        "domain": "patient_education",
+        "domain": "reviews",
         "target": 5_000,
-        "split": "train",
+        "split": "test",
     },
 
     # --- Technical / Engineering ---
@@ -468,33 +449,31 @@ HUMAN_SOURCES = [
 
     # --- Religious / Philosophy ---
     {
-        "name": "bible",
-        "hf_path": "bible-nlp/biblenlp-corpus",
+        "name": "gutenberg_extra",
+        "hf_path": "sedthh/gutenberg_english",
         "hf_name": None,
-        "text_field": "text",
-        "domain": "religious",
-        "target": 5_000,
+        "text_field": "TEXT",
+        "domain": "classic_literature",
+        "target": 10_000,
         "split": "train",
-        "min_words_override": 20,
-        "aggregate_lines": 5,
     },
     {
-        "name": "philpapers",
-        "hf_path": "malteos/philpapers-2023-10-28",
+        "name": "openwebtext_extra",
+        "hf_path": "Skylion007/openwebtext",
         "hf_name": None,
-        "text_field": "abstract",
-        "domain": "philosophy",
-        "target": 10_000,
+        "text_field": "text",
+        "domain": "web_diverse",
+        "target": 20_000,
         "split": "train",
     },
 
     # --- Lifestyle ---
     {
-        "name": "recipe_nlg",
-        "hf_path": "mbien/recipe_nlg",
+        "name": "tripadvisor_extra",
+        "hf_path": "argilla/tripadvisor-hotel-reviews",
         "hf_name": None,
-        "text_field": "directions",
-        "domain": "recipe",
+        "text_field": "text",
+        "domain": "travel_review",
         "target": 10_000,
         "split": "train",
     },
@@ -511,7 +490,7 @@ HUMAN_SOURCES = [
         "name": "fitness_qa",
         "hf_path": "its-myrto/fitness-question-answers",
         "hf_name": None,
-        "text_field": "answer",
+        "text_field": "Answer",
         "domain": "fitness",
         "target": 3_000,
         "split": "train",
@@ -520,13 +499,13 @@ HUMAN_SOURCES = [
 
     # --- Education ---
     {
-        "name": "openstax_textbooks",
-        "hf_path": "crumb/openstax-text",
-        "hf_name": None,
-        "text_field": "text",
-        "domain": "textbook",
+        "name": "cnn_extra",
+        "hf_path": "abisee/cnn_dailymail",
+        "hf_name": "3.0.0",
+        "text_field": "article",
+        "domain": "news",
         "target": 15_000,
-        "split": "train",
+        "split": "validation",
     },
     {
         "name": "exams_mcq",
@@ -541,29 +520,20 @@ HUMAN_SOURCES = [
 
     # --- Historical ---
     {
-        "name": "american_speeches",
-        "hf_path": "owahltinez/speaker-recognition-american-rhetoric",
+        "name": "pg19_extra",
+        "hf_path": "emozilla/pg19",
         "hf_name": None,
         "text_field": "text",
-        "domain": "historical_speech",
-        "target": 5_000,
-        "split": "train",
+        "domain": "classic_literature",
+        "target": 15_000,
+        "split": "validation",
     },
     {
-        "name": "foiarchive_declassified",
-        "hf_path": "HistoryLab/foiarchive",
+        "name": "openwebtext_hist",
+        "hf_path": "Skylion007/openwebtext",
         "hf_name": None,
         "text_field": "text",
-        "domain": "historical_gov",
-        "target": 10_000,
-        "split": "train",
-    },
-    {
-        "name": "blbooks_british_library",
-        "hf_path": "TheBritishLibrary/blbooks",
-        "hf_name": None,
-        "text_field": "text",
-        "domain": "historical_books",
+        "domain": "web_diverse",
         "target": 10_000,
         "split": "train",
     },
@@ -869,8 +839,6 @@ def collect_human_source(source, seen_hashes, max_per_source):
         }  # type: Dict[str, Any]
         if source.get("hf_name"):
             kwargs["name"] = source["hf_name"]
-        if source.get("trust_remote_code"):
-            kwargs["trust_remote_code"] = True
 
         ds = load_dataset(**kwargs)
 
@@ -1436,6 +1404,69 @@ def run_part_adversarial(seen_hashes, progress, max_total, output_path):
 # ---------------------------------------------------------------------------
 
 
+def run_dry_run():
+    """Test all HuggingFace data sources — load 1 sample from each.
+
+    Per project convention: always validate sources BEFORE running the full pipeline.
+    """
+    print("=" * 60, file=sys.stderr)
+    print("DRY RUN: Testing all HuggingFace data sources", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
+
+    ok = []  # type: List[str]
+    fail = []  # type: List[Tuple[str, str]]
+
+    for source in HUMAN_SOURCES:
+        name = source["name"]
+        print(f"\n[{name}] Testing {source['hf_path']}...", file=sys.stderr, end=" ")
+        try:
+            kwargs = {
+                "path": source["hf_path"],
+                "split": source["split"],
+                "streaming": True,
+            }  # type: Dict[str, Any]
+            if source.get("hf_name"):
+                kwargs["name"] = source["hf_name"]
+
+            ds = load_dataset(**kwargs)
+            sample = next(iter(ds))
+
+            texts = extract_text(sample, source["text_field"])
+            if texts:
+                preview = texts[0][:80].replace("\n", " ")
+                print(f"OK ({len(texts)} texts, preview: '{preview}...')", file=sys.stderr)
+                ok.append(name)
+            else:
+                print(f"WARN: loaded but text_field '{source['text_field']}' empty", file=sys.stderr)
+                fail.append((name, f"text_field '{source['text_field']}' returned empty"))
+        except Exception as e:
+            err = str(e)[:120]
+            print(f"FAIL: {err}", file=sys.stderr)
+            fail.append((name, err))
+
+    print(f"\n{'='*60}", file=sys.stderr)
+    print(f"DRY RUN RESULTS", file=sys.stderr)
+    print(f"{'='*60}", file=sys.stderr)
+    print(f"  OK:   {len(ok)}/{len(HUMAN_SOURCES)}", file=sys.stderr)
+    print(f"  FAIL: {len(fail)}/{len(HUMAN_SOURCES)}", file=sys.stderr)
+
+    if fail:
+        print(f"\nFailed sources:", file=sys.stderr)
+        for name, err in fail:
+            print(f"  {name}: {err}", file=sys.stderr)
+
+    if ok:
+        print(f"\nWorking sources:", file=sys.stderr)
+        for name in ok:
+            print(f"  {name}", file=sys.stderr)
+
+    target_sum = sum(s["target"] for s in HUMAN_SOURCES if s["name"] in ok)
+    print(f"\nAchievable human target from working sources: {target_sum:,} / {HUMAN_TARGET:,}",
+          file=sys.stderr)
+
+    return len(fail) == 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Build dataset_v6.jsonl: 1M AI detection training dataset"
@@ -1464,7 +1495,17 @@ def main():
         default=None,
         help="Output file path (default: {})".format(OUTPUT),
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Test all HF data sources (load 1 sample each) without collecting data",
+    )
     args = parser.parse_args()
+
+    # Dry-run mode: just test sources
+    if args.dry_run:
+        success = run_dry_run()
+        sys.exit(0 if success else 1)
 
     # Legacy flag support
     if args.human_only:
