@@ -212,24 +212,24 @@ def load_model():
 
 # ── Binoculars (dual-model detection, Hans et al. ICML 2024) ─────────────
 
-BINOCULARS_OBSERVER_PATH = os.path.expanduser(
-    "~/.ollama/models/blobs/sha256-74701a8c35f6c8d9a4b91f3f3497643001d63e0c7a84e085bed452548fa88d45"
-)  # llama3.2:1b
-BINOCULARS_PERFORMER_PATH = os.path.expanduser(
-    "~/.ollama/models/blobs/sha256-dde5aa3fc5ffc17176b5e8bdc82f587b24b2678c6c66101bf7da77af9f7ccdff"
-)  # llama3.2:3b
+BINOCULARS_OBSERVER_MODEL = "llama3.2:1b"
+BINOCULARS_PERFORMER_MODEL = "llama3.2:3b"
 
 
 def load_binoculars():
-    """Load observer (1b) + performer (3b) for Binoculars scoring."""
-    if not os.path.exists(BINOCULARS_OBSERVER_PATH) or not os.path.exists(BINOCULARS_PERFORMER_PATH):
+    """Load observer (1b) + performer (3b) for Binoculars scoring.
+    Uses dynamic Ollama resolution (never hardcode blob hashes — Pitfall #18).
+    """
+    observer_path = _resolve_ollama_blob(BINOCULARS_OBSERVER_MODEL)
+    performer_path = _resolve_ollama_blob(BINOCULARS_PERFORMER_MODEL)
+    if not observer_path or not performer_path:
         print("Binoculars: missing model(s), disabled.", file=sys.stderr)
         return None
     try:
         from llama_cpp import Llama
-        observer = Llama(model_path=BINOCULARS_OBSERVER_PATH, n_ctx=512, n_threads=4, logits_all=True, verbose=False)
-        performer = Llama(model_path=BINOCULARS_PERFORMER_PATH, n_ctx=512, n_threads=4, logits_all=True, verbose=False)
-        print("Binoculars: llama3.2:1b (observer) + llama3.2:3b (performer) loaded.", file=sys.stderr)
+        observer = Llama(model_path=observer_path, n_ctx=512, n_threads=4, logits_all=True, verbose=False)
+        performer = Llama(model_path=performer_path, n_ctx=512, n_threads=4, logits_all=True, verbose=False)
+        print(f"Binoculars: {BINOCULARS_OBSERVER_MODEL} (observer) + {BINOCULARS_PERFORMER_MODEL} (performer) loaded.", file=sys.stderr)
         return (observer, performer)
     except Exception as e:
         print(f"Binoculars load failed: {e}", file=sys.stderr)
@@ -805,7 +805,21 @@ def preprocess_for_detection(text):
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(length))
+        if length > 10_000_000:  # 10MB body limit
+            self.send_response(413)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "Request body too large"}).encode())
+            return
+        try:
+            raw = self.rfile.read(length)
+            body = json.loads(raw) if raw else {}
+        except (json.JSONDecodeError, ValueError):
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "Invalid JSON body"}).encode())
+            return
         text = body.get("text", "").strip()
 
         if not text:

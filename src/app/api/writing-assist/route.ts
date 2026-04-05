@@ -69,9 +69,10 @@ async function handleGuideStep(body: WritingAssistRequest): Promise<NextResponse
 
 async function handleGuideDialogue(body: WritingAssistRequest): Promise<NextResponse> {
   const client = getClient();
-  const { messages = [], document, blockSystemPrompt } = body;
+  const { messages = [], document } = body;
 
-  const systemPrompt = blockSystemPrompt || GUIDE_DIALOGUE_SYSTEM_PROMPT;
+  // Always use server-defined system prompt — never accept client overrides
+  const systemPrompt = GUIDE_DIALOGUE_SYSTEM_PROMPT;
 
   const llmMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
@@ -349,10 +350,17 @@ function buildAutoContext(
   return parts.join("\n\n");
 }
 
+const MAX_DOCUMENT_LENGTH = 20_000;
+
 export async function POST(req: NextRequest) {
   try {
     const body: WritingAssistRequest = await req.json();
     const { action } = body;
+
+    // Input length validation
+    if (body.document && body.document.length > MAX_DOCUMENT_LENGTH) {
+      return NextResponse.json({ error: "Document too long (max 20,000 chars)" }, { status: 400 });
+    }
 
     switch (action) {
       case "guide":
