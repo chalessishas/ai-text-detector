@@ -610,6 +610,7 @@ export default function WritingCenter() {
       <>
         {reflectionBanner}
         <BlockChat
+          key={activeBlock.id}
           block={activeBlock}
           sharedContext={{ topic, document, genre }}
           onDone={(output) => handleBlockDone(activeBlock.id, output)}

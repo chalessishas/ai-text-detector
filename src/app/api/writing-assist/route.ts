@@ -86,7 +86,9 @@ async function handleGuideDialogue(body: WritingAssistRequest): Promise<NextResp
   }
 
   for (const msg of messages) {
-    llmMessages.push({ role: msg.role, content: msg.content });
+    // Only allow user/assistant roles — block system role injection
+    const role = msg.role === "assistant" ? "assistant" : "user";
+    llmMessages.push({ role, content: msg.content });
   }
 
   const res = await client.chat.completions.create({

@@ -191,8 +191,7 @@ def load_model():
             print(f"Perplexity model: llama-cpp custom", file=sys.stderr)
             return ("llama", llm)
         except Exception as e:
-            print(f"Failed to load custom model: {e}", file=sys.stderr)
-            return None
+            print(f"Failed to load custom model: {e}, falling back to Ollama...", file=sys.stderr)
 
     for name in OLLAMA_MODELS:
         resolved = _resolve_ollama_blob(name)
