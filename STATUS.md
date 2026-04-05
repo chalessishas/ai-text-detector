@@ -1,6 +1,85 @@
 # AI Text X-Ray — 项目状态
 
-> 最后更新: 2026-04-04 07:23
+> 最后更新: 2026-04-05 08:09
+
+---
+
+## ⚠️ 紧急交接 (2026-04-05)
+
+### 当前最大问题：DeBERTa v5 假阳性率灾难性高
+
+**现象**：所有 150+ 词的人类文本被 DeBERTa v5 判为 82-96% AI。口语博客、学术论文、新闻、诗歌、商务邮件全部误判。
+
+**根因**（已确认）：
+1. v5 训练数据只有 69K 样本，题材单一
+2. 加了 17K adversarial AI（1:1 与 human 样本）导致模型学到 "像人的文本 = AI 伪装"
+3. DeBERTa 4-class（human/ai/ai_polished/human_polished）分散模型容量
+4. 模型太小（deberta-v3-base 86M 参数）不够学跨域特征
+
+**已决定的修复方案（用户已批准）**：
+1. 改 binary 分类（human vs AI）— 脚本已写好 `scripts/train_runpod_v6.py`
+2. 换 deberta-v3-large（304M 参数）
+3. 加 DANN domain-adversarial training（脚本已包含）
+4. 数据集扩到 1M（600K human + 300K AI + 100K adversarial）
+5. human:adversarial 比例 6:1（不再 1:1）
+
+### 数据集构建卡住了
+
+**问题**：49 个 HF 数据源有 24 个因为 `Dataset scripts are no longer supported` 错误完全失败。已收集的数据：
+- C4: 300K ✓（但全是 web 文本，题材不够多样）
+- OpenWebText: ~100K ✓
+- 其他成功的 8 个源: ~86K
+- **题材覆盖不够**：缺法律、医学临床、诗歌、剧本、宗教、哲学、教育教材等
+
+**解决方向**：
+1. 对失败的数据集，找替代版本或直接下载 raw data
+2. 在 pod 上有个测试脚本 `/workspace/test_all_sources.py` 正在测 36 个数据源的可用性
+3. 确认能用的源后，按**题材配额**分配（每个题材至少 10K），不是按数据集大小
+
+### RunPod 状态
+- Pod `ctbwaf5y42m8jk`（A100 SXM 80GB）已停止，数据保留在 volume
+- 上面已有：dataset_v4.jsonl、collect_human_fast.py 产出的 ~310K web 文本、train_runpod_v6.py
+- RunPod 余额约 $35+
+- API key: 在 `runpodctl doctor` 里配置过，或用 `runpodctl user` 验证
+
+### 已完成的工作（本次会话）
+| 项目 | 状态 |
+|------|------|
+| DeBERTa v5 训练 + 部署 | ✅ 但有严重假阳性 |
+| XGBoost 重训 3 轮 | ✅ 但不稳定 |
+| 安全审计 + 9 个 bug 修复 | ✅ 已 push (26e98bb, 3ee0461) |
+| OOD 数据扩充 227→471 | ✅ |
+| pytest 72 pass / 0 fail | ✅ |
+| Playwright 实测 4 场景 | ✅ |
+| StealthRL humanizer v1 | ❌ 1/3 绕过率，LoRA 丢失 |
+| 题材检测准确率报告 | ✅ docs/research/2026-04-05-detection-accuracy-by-genre.md |
+| 1M 数据集构建 | ❌ 卡在 HF 数据源兼容性 |
+
+### 关键文件
+| 文件 | 用途 |
+|------|------|
+| `scripts/train_runpod_v6.py` | v6 训练脚本（binary + large + DANN）|
+| `scripts/build_dataset_v6.py` | 数据集构建脚本（49 源，大部分失败）|
+| `scripts/train_stealth_runpod.py` | StealthRL 训练脚本 |
+| `scripts/train_xgboost_fusion.py` | XGBoost 融合训练 |
+| `docs/research/2026-04-05-detection-accuracy-by-genre.md` | 题材准确率报告 |
+| `docs/research/2026-04-05-text-corpus-datasets.md` | 66 种文本类型数据源清单 |
+| `docs/research/2026-04-05-stealthrl-fix-and-alternatives.md` | StealthRL 失败分析 |
+
+### Agent 审查发现的架构问题（待修）
+1. **Temperature 2.0 评估差距**：训练 T=1 评估，生产 T=2，实际准确率可能低很多
+2. **XGBoost ppl_score 重复特征**：手工离散化 + 原始值同时喂入导致不稳定
+3. **stat_score 未校准**：15 个魔法数字手调，无单元测试
+4. **PPL 模型 Ollama 解析脆弱**：输出格式变了就断
+
+### 下一步执行清单（按优先级）
+1. **P0**：修复数据源——逐个测试 36 个 HF 数据集，找到每个题材至少一个能用的数据源
+2. **P0**：按题材配额收集 600K human 文本（每个题材 10-50K）
+3. **P1**：用 DeepSeek API 生成 300K AI + 100K adversarial
+4. **P1**：在 A100 上跑 train_runpod_v6.py 训练 DeBERTa v6
+5. **P2**：修 XGBoost（去掉 ppl_score 重复特征，降低模型复杂度）
+6. **P2**：70+ 题材细分测试验证
+7. **P3**：StealthRL 重训（A100, num_generations=16, max_steps=2000）
 
 ---
 
