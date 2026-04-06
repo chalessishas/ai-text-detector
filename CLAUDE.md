@@ -98,6 +98,35 @@ ai-text-detector/
 - **Lazy loading:** HumanizeDashboard and WritingCenter are `dynamic()` imports.
 - **Writing Center 6+1 Traits:** Ideas, Organization, Voice, Word Choice, Sentence Fluency, Conventions, Presentation — each has a trait color for inline annotations.
 
+## 审查机制（每次重大改动前必须执行）
+
+接手项目或做重大改动前，必须按以下 4 层审查，**不允许跳层直接写代码**。
+
+### 第 1 层：数据审查
+- 训练数据覆盖了哪些域？**缺了哪些真实使用场景**？（ESL、社交媒体、学生作文、代码注释、翻译文本）
+- AI 数据用了几个模型生成？**单模型 = 单模型探测器**，不是通用检测器
+- 有没有标注错误？（如 synthetic_clinical_notes 被标为 human）
+- 数据源之间有没有重复？（同一 HF 数据集用了多次但标了不同 domain）
+
+### 第 2 层：设计审查
+- 模型的假设是什么？这些假设在生产中成立吗？
+- 如果有对抗训练（如 DANN），域标签的定义合理吗？（应该按**造成偏差的轴**分域，不是按主题分）
+- 分类方式的选择（binary vs multi-class）丢失了什么信息？
+- 融合层的特征是否冗余？样本量是否够？
+
+### 第 3 层：验证审查
+- 测试集从哪来？**手写 ≠ 真实分布**
+- 有没有**完全独立的 holdout 集**？（从未参与任何训练、调参、阈值选择）
+- "全绿"是真的好还是过拟合的信号？
+- 有没有针对**已知失败案例**的回归测试？
+
+### 第 4 层：投产审查
+- 训练环境和推理环境的配置一致吗？（温度、tokenizer 版本、模型精度）
+- 短文本/长文本/特殊格式文本的行为是否已知？
+- 降级路径是什么？（DeBERTa 不可用时、PPL 模型不可用时）
+
+**输出**：每层至少 1 条发现，按 CRITICAL/HIGH/MEDIUM/LOW 分级。CRITICAL = 会导致生产环境系统性失败。找不到问题说明没认真审查。
+
 ## Known Pitfalls
 
 1. **DeBERTa fp16 explodes** — Must call `model.float()` for fp32. M-series Mac + Colab both fail with fp16 DeBERTa-v3.
