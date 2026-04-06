@@ -1,6 +1,42 @@
 # AI Text X-Ray — 项目状态
 
-> 最后更新: 2026-04-05 08:52
+> 最后更新: 2026-04-06 05:07
+
+---
+
+## ⏳ 当前状态 (2026-04-06)
+
+### DeBERTa v6 正在 Colab A100 上训练
+- **Notebook**: Untitled27.ipynb（chalessishas@gmail.com 的 Colab）
+- **数据集**: 685K 样本（398K human + 215K AI + 72K adversarial），从 Google Drive 复制
+- **配置**: deberta-v3-large, binary, DANN, 3 epochs, batch=16, grad_accum=4
+- **预计**: ~8-10 小时完成（A100 40GB SXM4）
+- **状态**: cell 在 Executing，已跑 ~30 分钟（pip install + 模型下载 + 数据加载中）
+
+### 对抗性架构审查发现的问题（按优先级）
+
+| 级别 | # | 问题 | 修复状态 |
+|------|---|------|----------|
+| CRITICAL | C1 | AI 文本只用 DeepSeek 生成（单模型偏差） | **用户决定：不修** |
+| CRITICAL | C2 | XGBoost 在 DeBERTa 训练集上验证（循环泡沫） | 待修 |
+| CRITICAL | C3 | binary 合并丢失 human_polished 信号 | 待验证 |
+| HIGH | H1 | DANN 域标签应按生成来源分而非写作领域 | 待修（下次训练） |
+| HIGH | H2 | 数据源重复 + student_essay 只抓标题 + ESL 缺失 | 部分已修 |
+| HIGH | H3 | stat_score 15 个硬阈值无校准 | 待修 |
+| HIGH | H4 | XGBoost 453 样本统计功效不足 | 待修 |
+| MEDIUM | M4 | **synthetic_clinical_notes 是 AI 数据被标为 human** | **已修（删除）** |
+
+### 训练完成后需要做
+1. 从 Colab 下载 v6 模型到本地 `models/detector_v6/`
+2. 搭建独立 holdout 测试集（200 真实人类 + 150 非 DeepSeek AI）
+3. 对比 v5 vs v6 在 holdout 上的假阳性率
+4. 重训 XGBoost（用 v6 DeBERTa 信号 + 扩充 OOD 数据）
+5. 全套测试 60 项 + holdout 评估
+
+### RunPod 状态
+- 所有 pod 已终止（省钱）
+- API key: 在 `~/.runpod/config.toml` 中
+- 余额: ~$48
 
 ---
 

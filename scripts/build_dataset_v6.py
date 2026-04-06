@@ -417,15 +417,8 @@ HUMAN_SOURCES = [
         "target": 10_000,
         "split": "train",
     },
-    {
-        "name": "synthetic_clinical_notes",
-        "hf_path": "starmpcc/Asclepius-Synthetic-Clinical-Notes",
-        "hf_name": None,
-        "text_field": "note",
-        "domain": "clinical_notes",
-        "target": 5_000,
-        "split": "train",
-    },
+    # REMOVED: synthetic_clinical_notes — Asclepius is AI-generated data,
+    # was incorrectly labeled as human (label=0). Discovered in adversarial review 2026-04-06.
     {
         "name": "yelp_extra",
         "hf_path": "Yelp/yelp_review_full",
