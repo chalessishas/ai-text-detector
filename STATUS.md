@@ -1,6 +1,27 @@
 # AI Text X-Ray — 项目状态
 
-> 最后更新: 2026-04-06 05:07
+> 最后更新: 2026-04-06 07:00
+
+---
+
+## 🔴 当前计划（三角色讨论后确定）
+
+### 训练前必须完成
+1. **补 10K 学生 essay**（PERSUADE 2.0）+ **10K ESL**（Yahoo Answers/ELI5 非母语）
+2. **去重**：合并 CNN×3→1、OpenWebText×3→1、IMDB×2→1 等重复源
+3. **搭独立 holdout 集**：800 human + 600 AI（GPT-4o/Claude/Gemini 各 200）
+
+### 训练配置改动
+- 加权 CrossEntropyLoss: weight=[1.5, 1.0]（human 更高 → 降假阳性）
+- Epochs: 3→5 + early stopping patience 3
+- MAX_LEN: 512→768, BATCH_SIZE: 16→12, GRAD_ACCUM: 4→6
+- DANN 域: 73 碎域→8 大域, DANN_LAMBDA_MAX: 1.0→0.5
+
+### 上线门槛
+- holdout 整体 human FPR < 5%
+- 学生 essay FPR < 3%
+- AI TPR > 85%
+- 红队 15 条假阳性 ≤ 1
 
 ---
 
