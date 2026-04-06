@@ -26,6 +26,14 @@
 | HIGH | H4 | XGBoost 453 样本统计功效不足 | 待修 |
 | MEDIUM | M4 | **synthetic_clinical_notes 是 AI 数据被标为 human** | **已修（删除）** |
 
+### 模型文件位置（不在 git 中）
+- **DeBERTa v4**: `models/detector_v4/` — 2026-03-26 训练，97.6% 4-class。只在原始开发机上
+- **DeBERTa v5**: `models/detector_v5/` — 2026-04-04 训练（RunPod 4090），97.4% 4-class + adversarial。只在 shaoq 的 MacBook 上。symlink `models/detector → detector_v5`
+- **DeBERTa v6**: 正在 Colab A100 训练中。完成后需下载到 `models/detector_v6/`
+- **XGBoost**: `models/xgboost_fusion.pkl` — 在 git 中（226KB）
+- **LR v3**: `models/perplexity_lr_v3.pkl` — 在 git 中（2.3KB）
+- **注意**: 新机器 clone 后没有 DeBERTa 模型文件，检测服务器会 fallback 到 heuristic 模式
+
 ### 训练完成后需要做
 1. 从 Colab 下载 v6 模型到本地 `models/detector_v6/`
 2. 搭建独立 holdout 测试集（200 真实人类 + 150 非 DeepSeek AI）
