@@ -44,34 +44,48 @@ from typing import Dict, List, Optional
 # Vendor configurations (OpenAI-compatible endpoints)
 # ---------------------------------------------------------------------------
 
-# All 5 vendors expose OpenAI-compatible chat/completions. env var names
-# follow vendor docs as of 2026-04.
+# Vendor registry. sdk_type distinguishes OpenAI-compatible endpoints
+# (use `openai.OpenAI(base_url=..., api_key=...)`) from Anthropic's native
+# SDK (use `anthropic.Anthropic(api_key=...)`, different method names +
+# message format). Master: do NOT treat these uniformly in get_client().
+#
+# Quality caveat for Path C: The 5 vendors have asymmetric Chinese
+# generation quality (GPT-4o-mini's Chinese can be stilted; ERNIE/Kimi
+# are native; Claude's Chinese still lagging in 2026). After generation,
+# spot-check ~50 samples per vendor before merging — mixing low-quality
+# outputs may teach the detector vendor-specific stylistic artifacts
+# rather than generic "AI text" signals.
 VENDORS: Dict[str, Dict[str, Optional[str]]] = {
     "gpt4o-mini": {
+        "sdk_type": "openai",
         "base_url": "https://api.openai.com/v1",
         "env_key": "OPENAI_API_KEY",
         "model_id": "gpt-4o-mini",
         "source_tag": "gpt4o_mini_chinese",
     },
     "claude-haiku": {
-        "base_url": "https://api.anthropic.com/v1",  # requires anthropic-compat adapter
+        "sdk_type": "anthropic",  # NOT OpenAI-compatible — use anthropic SDK
+        "base_url": None,         # not used; anthropic SDK handles endpoint
         "env_key": "ANTHROPIC_API_KEY",
         "model_id": "claude-haiku-4-5-20251001",
         "source_tag": "claude_haiku_chinese",
     },
     "qwen3-max": {
+        "sdk_type": "openai",  # Dashscope exposes OpenAI-compat mode
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "env_key": "DASHSCOPE_API_KEY",
         "model_id": "qwen3-max",
         "source_tag": "qwen3_max_chinese",
     },
     "ernie-5": {
+        "sdk_type": "openai",  # Baidu Qianfan v2 exposes OpenAI-compat
         "base_url": "https://qianfan.baidubce.com/v2",
         "env_key": "ERNIE_API_KEY",
         "model_id": "ernie-5-turbo",
         "source_tag": "ernie5_chinese",
     },
     "kimi-k2.5": {
+        "sdk_type": "openai",  # Moonshot exposes OpenAI-compat
         "base_url": "https://api.moonshot.cn/v1",
         "env_key": "MOONSHOT_API_KEY",
         "model_id": "moonshot-v1-k2.5",
