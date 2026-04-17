@@ -2,6 +2,16 @@
 
 AI 文本检测 + 人性化改写 + 写作教练三合一平台。四路投票检测（DeBERTa + qwen3:4b PPL + LR + 统计特征）+ 50M 真人语料库 FAISS 改写 + DeepSeek V3 写作辅导。
 
+> ⚠️ **2026-04-17 审计提示（v6 阶段变更未文档化）**
+>
+> 以下行号的描述反映 v4 时代状态，和 v6 实际实现不同步。产品方向（DeepSeek-only v6 vs 多模型 v4）需主人决策后再更新：
+> - Line 10 "69,176 samples balanced 4-class" → v6 实际 711,520 binary，见 `build_dataset_v6.py`
+> - Line 22 API "DeBERTa 4-class" → v6 是 binary classifier
+> - Line 72 `generate_dataset.py # 23 models × 6 styles × 20 topics` → v6 用 `build_dataset_v6.py` + DeepSeek API only（600K human + 400K DeepSeek AI）
+> - Line 199 "97.6% on 69K balanced" → 这是 v5 on v4 的历史结果，非当前
+>
+> 参见 `docs/research/2026-04-17-research-loop-0000-ai-detector-restart.md` 和 chronicle 2026-04-17 Turns 3-5。
+
 ## Tech Stack
 
 - **Frontend:** Next.js 16 + React 19 + TypeScript + Tailwind CSS 4 + Recharts 3 + Tiptap 3
