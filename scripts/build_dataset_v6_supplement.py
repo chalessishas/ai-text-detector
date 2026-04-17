@@ -49,12 +49,16 @@ from typing import Dict, List, Optional
 # SDK (use `anthropic.Anthropic(api_key=...)`, different method names +
 # message format). Master: do NOT treat these uniformly in get_client().
 #
-# Quality caveat for Path C: The 5 vendors have asymmetric Chinese
-# generation quality (GPT-4o-mini's Chinese can be stilted; ERNIE/Kimi
-# are native; Claude's Chinese still lagging in 2026). After generation,
-# spot-check ~50 samples per vendor before merging — mixing low-quality
-# outputs may teach the detector vendor-specific stylistic artifacts
-# rather than generic "AI text" signals.
+# Quality caveat for Path C: Expect asymmetric Chinese generation
+# quality across vendors — different training corpora, RL objectives,
+# and token tokenizers produce stylistically distinct outputs even on
+# identical prompts. No verified 2026 benchmark exists comparing these
+# 5 vendors on the specific essay-style prompts used here, so do NOT
+# skip the spot-check step. After generation, sample ~50 outputs per
+# vendor. If any vendor produces obviously low-quality or translated-
+# looking Chinese, exclude that shard or regenerate with a different
+# model_id — mixing low-quality samples risks teaching the detector
+# vendor-specific stylistic artifacts rather than generic AI-text signals.
 VENDORS: Dict[str, Dict[str, Optional[str]]] = {
     "gpt4o-mini": {
         "sdk_type": "openai",
